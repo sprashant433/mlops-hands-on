@@ -735,3 +735,125 @@ flake8 src tests
 PYTHONPATH=src pytest
 PYTHONPATH=src python src/mlops_lr/pipeline.py
 ```
+
+## Phase 2: Git Workflow
+
+### Step 13: Initialize Git and Create Foundation Commit
+
+Initialized Git for the project and committed the completed Phase 1 foundation.
+
+Commands:
+
+```bash
+git init
+git status
+git add .
+git commit -m "feat: complete phase 1 software engineering foundation"
+git branch -M main
+git tag v0.1-foundation
+```
+
+Verification:
+
+```bash
+git log --oneline --decorate
+git tag
+```
+
+Created tag:
+
+```text
+v0.1-foundation
+```
+
+At this point, the project has a stable foundation checkpoint.
+
+### Step 14: Create Develop Branch
+
+Created the long-lived `develop` branch from `main`.
+
+Command:
+
+```bash
+git checkout -b develop
+```
+
+Verification:
+
+```bash
+git branch
+```
+
+Expected branch state:
+
+```text
+* develop
+  main
+```
+
+From now on:
+
+```text
+feature branches
+↓
+develop
+↓
+main
+```
+
+### Step 15: Create Feature Branches
+
+Created feature branches for future isolated work.
+
+Commands:
+
+```bash
+git checkout develop
+git branch feature/data-pipeline
+git branch feature/model-training
+git branch feature/api-serving
+```
+
+Verification:
+
+```bash
+git branch
+```
+
+Expected branches:
+
+```text
+* develop
+  feature/api-serving
+  feature/data-pipeline
+  feature/model-training
+  main
+```
+
+Workflow:
+
+```text
+feature branch
+↓
+pull request
+↓
+develop
+↓
+pull request
+↓
+main
+```
+
+### Step 16: Simulate Feature Branch PR into Develop
+
+Practiced a local feature branch workflow using `feature/data-pipeline`.
+
+Flow:
+
+```text
+feature/data-pipeline
+↓
+develop
+```
+
+This simulates how a pull request would move feature work into the integration branch.
