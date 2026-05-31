@@ -10,6 +10,7 @@ from mlops_lr.logger import get_logger
 
 import mlflow
 import mlflow.sklearn
+from mlflow.models.signature import infer_signature
 
 
 logger = get_logger(__name__)
@@ -45,12 +46,20 @@ def train_model() -> tuple[LogisticRegression, str]:
 
         model = LogisticRegression(max_iter=config.model.max_iter)
         model.fit(X_train, y_train)
+        
+        input_example = X_train.head(5)
+        model_signature = infer_signature(X_train, model.predict(X_train))
 
         output_path = Path(config.model.output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         joblib.dump(model, output_path)
 
-        mlflow.sklearn.log_model(model, name="model")
+        mlflow.sklearn.log_model(
+            model,
+            name="model",
+            signature=model_signature,
+            input_example=input_example,
+        )
         mlflow.log_artifact(str(output_path))
 
         run_id = mlflow.active_run().info.run_id

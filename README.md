@@ -1002,6 +1002,24 @@ def train_model() -> LogisticRegression:
     return model
 ```
 
+Model signature update:
+
+```python
+from mlflow.models.signature import infer_signature
+
+input_example = X_train.head(5)
+model_signature = infer_signature(X_train, model.predict(X_train))
+
+mlflow.sklearn.log_model(
+    model,
+    name="model",
+    signature=model_signature,
+    input_example=input_example,
+)
+```
+
+This removes the MLflow warning about missing model signature and gives the model an explicit input/output schema.
+
 Run:
 
 ```bash
@@ -1046,7 +1064,10 @@ def train_model() -> tuple[LogisticRegression, str]:
 Evaluation accepts an optional MLflow run ID:
 
 ```python
-def evaluate_model(run_id: str | None = None) -> dict[str, float]:
+from typing import Optional
+
+
+def evaluate_model(run_id: Optional[str] = None) -> dict[str, float]:
     ...
     if run_id:
         with mlflow.start_run(run_id=run_id):
