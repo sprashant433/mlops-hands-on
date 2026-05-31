@@ -15,7 +15,7 @@ import mlflow.sklearn
 logger = get_logger(__name__)
 
 
-def train_model() -> LogisticRegression:
+def train_model() -> tuple[LogisticRegression, str]:
     config = load_config()
     target_column = config.data.target_column
 
@@ -53,6 +53,8 @@ def train_model() -> LogisticRegression:
         mlflow.sklearn.log_model(model, name="model")
         mlflow.log_artifact(str(output_path))
 
+        run_id = mlflow.active_run().info.run_id
+
     logger.info("Model saved to %s", output_path)
 
-    return model
+    return model, run_id

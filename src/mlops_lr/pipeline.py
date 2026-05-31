@@ -21,4 +21,5 @@ def run_pipeline() -> dict[str, float]:
 
 
 if __name__ == "__main__":
-    run_pipeline()
+    _, run_id = train_model()
+    metrics = evaluate_model(run_id=run_id)

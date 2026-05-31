@@ -14,8 +14,8 @@ def test_evaluate_model():
     processed_data = build_features(raw_data)
     processed_data.to_csv(config.data.processed_path, index=False)
 
-    train_model()
-    metrics = evaluate_model()
+    _, run_id = train_model()
+    metrics = evaluate_model(run_id=run_id)
 
     assert Path(config.model.metrics_path).exists()
 

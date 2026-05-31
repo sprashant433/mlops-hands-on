@@ -15,7 +15,8 @@ def test_train_model():
     processed_data = build_features(raw_data)
     processed_data.to_csv(config.data.processed_path, index=False)
 
-    model = train_model()
+    model, run_id = train_model()
 
     assert isinstance(model, LogisticRegression)
     assert Path(config.model.output_path).exists()
+    assert run_id

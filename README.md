@@ -1017,3 +1017,58 @@ Open:
 ```text
 http://127.0.0.1:5000
 ```
+
+### Step 20: Log Evaluation Metrics to MLflow
+
+Updated the pipeline so evaluation metrics are logged to the same MLflow run created during training.
+
+This step logs:
+
+- accuracy
+- precision
+- recall
+- f1
+- roc_auc
+- metrics JSON artifact
+
+Training now returns the active MLflow run ID:
+
+```python
+def train_model() -> tuple[LogisticRegression, str]:
+    ...
+    with mlflow.start_run(run_name="logistic-regression-training"):
+        ...
+        run_id = mlflow.active_run().info.run_id
+
+    return model, run_id
+```
+
+Evaluation accepts an optional MLflow run ID:
+
+```python
+def evaluate_model(run_id: str | None = None) -> dict[str, float]:
+    ...
+    if run_id:
+        with mlflow.start_run(run_id=run_id):
+            mlflow.log_metrics(metrics)
+            mlflow.log_artifact(str(output_path))
+
+    return metrics
+```
+
+Pipeline connects both steps:
+
+```python
+_, run_id = train_model()
+metrics = evaluate_model(run_id=run_id)
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/pipeline.py
+mlflow ui --backend-store-uri ./mlruns
+```

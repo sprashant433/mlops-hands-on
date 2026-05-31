@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
+from typing import Optional
 
 import joblib
+import mlflow
 import pandas as pd
 from sklearn.metrics import (
     accuracy_score,
@@ -12,6 +14,7 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split
 
+
 from mlops_lr.config import load_config
 from mlops_lr.logger import get_logger
 
@@ -19,7 +22,7 @@ from mlops_lr.logger import get_logger
 logger = get_logger(__name__)
 
 
-def evaluate_model() -> dict[str, float]:
+def evaluate_model(run_id: Optional[str] = None) -> dict[str, float]:
     logger.info("Evaluating model")
     config = load_config()
     target_column = config.data.target_column
@@ -52,6 +55,11 @@ def evaluate_model() -> dict[str, float]:
 
     output_path = Path(config.model.metrics_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if run_id:
+        with mlflow.start_run(run_id=run_id):
+            mlflow.log_metrics(metrics)
+            mlflow.log_artifact(str(output_path))
 
     with output_path.open("w") as file:
         json.dump(metrics, file, indent=2)
