@@ -8,14 +8,19 @@ import joblib
 from mlops_lr.config import load_config
 from mlops_lr.logger import get_logger
 
+import mlflow
+import mlflow.sklearn
+
 
 logger = get_logger(__name__)
 
 
 def train_model() -> LogisticRegression:
-    logger.info("Training model")
     config = load_config()
     target_column = config.data.target_column
+
+    mlflow.set_tracking_uri(config.mlflow.tracking_uri)
+    mlflow.set_experiment(config.mlflow.experiment_name)
 
     data = pd.read_csv(config.data.processed_path)
 
@@ -30,11 +35,24 @@ def train_model() -> LogisticRegression:
         stratify=y,
     )
 
-    model = LogisticRegression(max_iter=config.model.max_iter)
-    model.fit(X_train, y_train)
+    logger.info("Training model")
 
-    output_path = Path(config.model.output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, output_path)
+    with mlflow.start_run(run_name="logistic-regression-training"):
+        mlflow.log_param("model_name", config.model.name)
+        mlflow.log_param("max_iter", config.model.max_iter)
+        mlflow.log_param("test_size", config.data.test_size)
+        mlflow.log_param("random_state", config.data.random_state)
+
+        model = LogisticRegression(max_iter=config.model.max_iter)
+        model.fit(X_train, y_train)
+
+        output_path = Path(config.model.output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump(model, output_path)
+
+        mlflow.sklearn.log_model(model, name="model")
+        mlflow.log_artifact(str(output_path))
+
     logger.info("Model saved to %s", output_path)
+
     return model
