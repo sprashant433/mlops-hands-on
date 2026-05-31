@@ -7,3 +7,4 @@ pyyaml
 black
 flake8
 joblib
+mlflow

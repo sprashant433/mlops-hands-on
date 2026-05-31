@@ -891,3 +891,50 @@ Created tag:
 ```text
 v0.2-git-workflow
 ```
+
+## Phase 3: MLflow Tracking
+
+### Step 18: Add MLflow Dependency and Config
+
+Added MLflow as the experiment tracking tool.
+
+This step introduced:
+
+- `mlflow` dependency
+- MLflow tracking URI
+- MLflow experiment name
+- Pydantic config support for MLflow settings
+
+Configuration:
+
+```yaml
+mlflow:
+  tracking_uri: file:./mlruns
+  experiment_name: loan-approval-logistic-regression
+```
+
+Config model:
+
+```python
+class MLflowConfig(BaseModel):
+    tracking_uri: str
+    experiment_name: str
+```
+
+Updated app config:
+
+```python
+class AppConfig(BaseModel):
+    project: ProjectConfig
+    data: DataConfig
+    model: ModelConfig
+    mlflow: MLflowConfig
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```

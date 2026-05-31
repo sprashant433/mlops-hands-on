@@ -14,3 +14,7 @@ model:
   max_iter: 1000
   output_path: models/logistic_regression.pkl
   metrics_path: reports/metrics.json
+
+mlflow:
+  tracking_uri: file:./mlruns
+  experiment_name: loan-approval-logistic-regression

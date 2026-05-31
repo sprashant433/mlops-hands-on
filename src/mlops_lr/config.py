@@ -25,10 +25,16 @@ class ModelConfig(BaseModel):
     metrics_path: str
 
 
+class MLflowConfig(BaseModel):
+    tracking_uri: str
+    experiment_name: str
+
+
 class AppConfig(BaseModel):
     project: ProjectConfig
     data: DataConfig
     model: ModelConfig
+    mlflow: MLflowConfig
 
 
 def load_config(config_path: str = "configs/config.yaml") -> AppConfig:
