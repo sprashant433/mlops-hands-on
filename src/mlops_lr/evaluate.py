@@ -18,6 +18,9 @@ from sklearn.model_selection import train_test_split
 from mlops_lr.config import load_config
 from mlops_lr.logger import get_logger
 
+import matplotlib.pyplot as plt
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+
 
 logger = get_logger(__name__)
 
@@ -56,10 +59,20 @@ def evaluate_model(run_id: Optional[str] = None) -> dict[str, float]:
     output_path = Path(config.model.metrics_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    confusion_matrix_path = output_path.parent / "confusion_matrix.png"
+
+    cm = confusion_matrix(y_test, y_pred)
+    display = ConfusionMatrixDisplay(confusion_matrix=cm)
+    display.plot()
+    plt.title("Confusion Matrix")
+    plt.savefig(confusion_matrix_path, bbox_inches="tight")
+    plt.close()
+
     if run_id:
         with mlflow.start_run(run_id=run_id):
             mlflow.log_metrics(metrics)
             mlflow.log_artifact(str(output_path))
+            mlflow.log_artifact(str(confusion_matrix_path))
 
     with output_path.open("w") as file:
         json.dump(metrics, file, indent=2)

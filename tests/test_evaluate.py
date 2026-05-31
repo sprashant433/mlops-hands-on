@@ -30,3 +30,4 @@ def test_evaluate_model():
     assert 0 <= metrics["recall"] <= 1
     assert 0 <= metrics["f1"] <= 1
     assert 0 <= metrics["roc_auc"] <= 1
+    assert Path("reports/confusion_matrix.png").exists()

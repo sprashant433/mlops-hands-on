@@ -46,8 +46,8 @@ def train_model() -> tuple[LogisticRegression, str]:
 
         model = LogisticRegression(max_iter=config.model.max_iter)
         model.fit(X_train, y_train)
-        
-        input_example = X_train.head(5)
+
+        input_example = X_train.iloc[[0]]
         model_signature = infer_signature(X_train, model.predict(X_train))
 
         output_path = Path(config.model.output_path)

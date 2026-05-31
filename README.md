@@ -1093,3 +1093,43 @@ PYTHONPATH=src pytest
 PYTHONPATH=src python src/mlops_lr/pipeline.py
 mlflow ui --backend-store-uri ./mlruns
 ```
+
+### Step 21: Log Confusion Matrix Artifact to MLflow
+
+Added a confusion matrix artifact during model evaluation.
+
+This step introduced:
+
+- `matplotlib`
+- confusion matrix generation
+- `reports/confusion_matrix.png`
+- MLflow artifact logging for the confusion matrix
+
+Implementation:
+
+```python
+import matplotlib.pyplot as plt
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+
+cm = confusion_matrix(y_test, y_pred)
+display = ConfusionMatrixDisplay(confusion_matrix=cm)
+display.plot()
+plt.title("Confusion Matrix")
+plt.savefig(confusion_matrix_path, bbox_inches="tight")
+plt.close()
+
+if run_id:
+    with mlflow.start_run(run_id=run_id):
+        mlflow.log_metrics(metrics)
+        mlflow.log_artifact(str(output_path))
+        mlflow.log_artifact(str(confusion_matrix_path))
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/pipeline.py
+```
