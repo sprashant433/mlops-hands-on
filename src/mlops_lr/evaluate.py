@@ -73,6 +73,11 @@ def evaluate_model(run_id: Optional[str] = None) -> dict[str, float]:
             mlflow.log_metrics(metrics)
             mlflow.log_artifact(str(output_path))
             mlflow.log_artifact(str(confusion_matrix_path))
+    else:
+        with mlflow.start_run(run_name="logistic-regression-evaluation"):
+            mlflow.log_metrics(metrics)
+            mlflow.log_artifact(str(output_path))
+            mlflow.log_artifact(str(confusion_matrix_path))
 
     with output_path.open("w") as file:
         json.dump(metrics, file, indent=2)

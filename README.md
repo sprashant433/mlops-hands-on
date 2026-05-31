@@ -1133,3 +1133,39 @@ flake8 src tests
 PYTHONPATH=src pytest
 PYTHONPATH=src python src/mlops_lr/pipeline.py
 ```
+
+### Step 22: Standalone MLflow Evaluation Logging
+
+Updated evaluation so it can log to MLflow with or without a training run ID.
+
+Behavior:
+
+- with `run_id`: logs metrics and artifacts to the existing training run
+- without `run_id`: creates a new evaluation run
+
+Implementation:
+
+```python
+mlflow.set_tracking_uri(config.mlflow.tracking_uri)
+mlflow.set_experiment(config.mlflow.experiment_name)
+
+if run_id:
+    with mlflow.start_run(run_id=run_id):
+        mlflow.log_metrics(metrics)
+        mlflow.log_artifact(str(output_path))
+        mlflow.log_artifact(str(confusion_matrix_path))
+else:
+    with mlflow.start_run(run_name="logistic-regression-evaluation"):
+        mlflow.log_metrics(metrics)
+        mlflow.log_artifact(str(output_path))
+        mlflow.log_artifact(str(confusion_matrix_path))
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.evaluate import evaluate_model; print(evaluate_model())"
+```
