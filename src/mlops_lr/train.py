@@ -11,6 +11,7 @@ from mlops_lr.logger import get_logger
 import mlflow
 import mlflow.sklearn
 from mlflow.models.signature import infer_signature
+from mlops_lr.mlflow_utils import configure_mlflow
 
 
 logger = get_logger(__name__)
@@ -18,10 +19,8 @@ logger = get_logger(__name__)
 
 def train_model() -> tuple[LogisticRegression, str]:
     config = load_config()
+    configure_mlflow()
     target_column = config.data.target_column
-
-    mlflow.set_tracking_uri(config.mlflow.tracking_uri)
-    mlflow.set_experiment(config.mlflow.experiment_name)
 
     data = pd.read_csv(config.data.processed_path)
 

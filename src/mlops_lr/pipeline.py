@@ -13,13 +13,12 @@ def run_pipeline() -> dict[str, float]:
 
     generate_raw_data()
     create_processed_data()
-    train_model()
-    metrics = evaluate_model()
+    _, run_id = train_model()
+    metrics = evaluate_model(run_id=run_id)
 
     logger.info("ML pipeline completed")
     return metrics
 
 
 if __name__ == "__main__":
-    _, run_id = train_model()
-    metrics = evaluate_model(run_id=run_id)
+    run_pipeline()

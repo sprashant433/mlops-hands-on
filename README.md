@@ -1111,6 +1111,9 @@ Implementation:
 import matplotlib.pyplot as plt
 from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 
+with output_path.open("w") as file:
+    json.dump(metrics, file, indent=2)
+
 cm = confusion_matrix(y_test, y_pred)
 display = ConfusionMatrixDisplay(confusion_matrix=cm)
 display.plot()
@@ -1168,4 +1171,52 @@ black src tests
 flake8 src tests
 PYTHONPATH=src pytest
 PYTHONPATH=src python -c "from mlops_lr.evaluate import evaluate_model; print(evaluate_model())"
+```
+
+Troubleshooting:
+
+When running the full pipeline, pass the training run ID into evaluation so evaluation artifacts land on the same training run:
+
+```python
+_, run_id = train_model()
+metrics = evaluate_model(run_id=run_id)
+```
+
+If `evaluate_model()` is called without a `run_id`, MLflow creates a separate evaluation run. In that case, artifacts like `confusion_matrix.png` appear on the evaluation run, not the training run.
+
+### Step 23: MLflow Helper Module
+
+Created a reusable MLflow helper in `src/mlops_lr/mlflow_utils.py`.
+
+This keeps MLflow setup consistent across training, evaluation, and future tracking features.
+
+Implementation:
+
+```python
+import mlflow
+
+from mlops_lr.config import load_config
+
+
+def configure_mlflow() -> None:
+    config = load_config()
+
+    mlflow.set_tracking_uri(config.mlflow.tracking_uri)
+    mlflow.set_experiment(config.mlflow.experiment_name)
+```
+
+Usage:
+
+```python
+from mlops_lr.mlflow_utils import configure_mlflow
+
+configure_mlflow()
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
 ```
