@@ -857,3 +857,37 @@ develop
 ```
 
 This simulates how a pull request would move feature work into the integration branch.
+
+### Step 17: Merge Develop into Main
+
+Practiced the release flow from `develop` into `main`.
+
+Flow:
+
+```text
+develop
+↓
+main
+```
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: develop into main"
+git tag v0.2-git-workflow
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=15
+git tag
+```
+
+Created tag:
+
+```text
+v0.2-git-workflow
+```
