@@ -1,0 +1,43 @@
+from pathlib import Path
+from typing import Any
+
+import yaml
+from pydantic import BaseModel
+
+
+class ProjectConfig(BaseModel):
+    name: str
+    version: str
+
+
+class DataConfig(BaseModel):
+    raw_path: str
+    processed_path: str
+    target_column: str
+    test_size: float
+    random_state: int
+
+
+class ModelConfig(BaseModel):
+    name: str
+    max_iter: int
+    output_path: str
+    metrics_path: str
+
+
+class AppConfig(BaseModel):
+    project: ProjectConfig
+    data: DataConfig
+    model: ModelConfig
+
+
+def load_config(config_path: str = "configs/config.yaml") -> AppConfig:
+    path = Path(config_path)
+
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    with path.open("r") as file:
+        config_data: dict[str, Any] = yaml.safe_load(file)
+
+    return AppConfig(**config_data)

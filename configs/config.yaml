@@ -1,0 +1,16 @@
+project:
+  name: mlops-logistic-regression
+  version: 0.1.0
+
+data:
+  raw_path: data/raw.csv
+  processed_path: data/processed.csv
+  target_column: loan_approved
+  test_size: 0.2
+  random_state: 42
+
+model:
+  name: LogisticRegression
+  max_iter: 1000
+  output_path: models/logistic_regression.pkl
+  metrics_path: reports/metrics.json
