@@ -843,3 +843,17 @@ pull request
 ↓
 main
 ```
+
+### Step 16: Simulate Feature Branch PR into Develop
+
+Practiced a local feature branch workflow using `feature/data-pipeline`.
+
+Flow:
+
+```text
+feature/data-pipeline
+↓
+develop
+```
+
+This simulates how a pull request would move feature work into the integration branch.
