@@ -800,3 +800,46 @@ develop
 ↓
 main
 ```
+
+### Step 15: Create Feature Branches
+
+Created feature branches for future isolated work.
+
+Commands:
+
+```bash
+git checkout develop
+git branch feature/data-pipeline
+git branch feature/model-training
+git branch feature/api-serving
+```
+
+Verification:
+
+```bash
+git branch
+```
+
+Expected branches:
+
+```text
+* develop
+  feature/api-serving
+  feature/data-pipeline
+  feature/model-training
+  main
+```
+
+Workflow:
+
+```text
+feature branch
+↓
+pull request
+↓
+develop
+↓
+pull request
+↓
+main
+```
