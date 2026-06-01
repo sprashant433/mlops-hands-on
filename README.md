@@ -1589,3 +1589,51 @@ black src tests
 flake8 src tests
 PYTHONPATH=src pytest
 ```
+
+### Step 33: Register Best Tuned Model
+
+Updated tuning so the best Hyperopt model is registered in the MLflow Model Registry.
+
+Registered model:
+
+```text
+LoanApprovalModel
+```
+
+MLflow setup now includes the registry URI:
+
+```python
+def configure_mlflow() -> None:
+    config = load_config()
+
+    mlflow.set_tracking_uri(config.mlflow.tracking_uri)
+    mlflow.set_registry_uri(config.mlflow.tracking_uri)
+    mlflow.set_experiment(config.mlflow.experiment_name)
+```
+
+Best model registration:
+
+```python
+mlflow.sklearn.log_model(
+    best_model,
+    name="best_model",
+    signature=model_signature,
+    input_example=input_example,
+    registered_model_name=config.mlflow.registered_model_name,
+)
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/tuning_pipeline.py
+```
+
+Then check MLflow UI:
+
+```text
+Models → LoanApprovalModel
+```

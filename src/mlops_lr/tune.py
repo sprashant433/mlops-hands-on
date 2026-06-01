@@ -126,6 +126,7 @@ def tune_model() -> tuple[LogisticRegression, dict[str, float], dict]:
             name="best_model",
             signature=model_signature,
             input_example=input_example,
+            registered_model_name=config.mlflow.registered_model_name,
         )
         mlflow.log_artifact(str(output_path))
 
