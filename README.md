@@ -1525,3 +1525,29 @@ flake8 src tests
 PYTHONPATH=src pytest
 PYTHONPATH=src python src/mlops_lr/tuning_pipeline.py
 ```
+
+### Step 31: Tag Hyperparameter Tuning Milestone
+
+Merged the Hyperopt tuning work into `main` and tagged the Phase 4 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: hyperparameter tuning into main"
+git tag v0.4-hyperparameter-tuning
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=25
+git tag
+```
+
+Created tag:
+
+```text
+v0.4-hyperparameter-tuning
+```
