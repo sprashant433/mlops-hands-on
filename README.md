@@ -1358,3 +1358,34 @@ black src tests
 flake8 src tests
 PYTHONPATH=src pytest
 ```
+
+### Step 27: Create Hyperparameter Tuning Module
+
+Created a Hyperopt tuning module in `src/mlops_lr/tune.py`.
+
+This step:
+
+- defines a search space for Logistic Regression
+- runs multiple trials with Hyperopt
+- logs every trial to MLflow
+- selects the best model by F1 score
+- logs the best model with signature and input example
+
+Search space:
+
+```python
+search_space = {
+    "C": hp.loguniform("C", -4, 2),
+    "solver": hp.choice("solver", ["liblinear", "lbfgs"]),
+    "max_iter": hp.choice("max_iter", [100, 500, 1000]),
+}
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.tune import tune_model; print(tune_model())"
+```
