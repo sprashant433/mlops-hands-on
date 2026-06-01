@@ -10,3 +10,4 @@ def test_load_config():
 
     assert config.mlflow.tracking_uri == "file:./mlruns"
     assert config.mlflow.experiment_name == "loan-approval-logistic-regression"
+    assert config.tuning.max_evals == 10

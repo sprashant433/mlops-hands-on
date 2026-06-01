@@ -30,11 +30,16 @@ class MLflowConfig(BaseModel):
     experiment_name: str
 
 
+class TuningConfig(BaseModel):
+    max_evals: int
+
+
 class AppConfig(BaseModel):
     project: ProjectConfig
     data: DataConfig
     model: ModelConfig
     mlflow: MLflowConfig
+    tuning: TuningConfig
 
 
 def load_config(config_path: str = "configs/config.yaml") -> AppConfig:

@@ -1287,3 +1287,241 @@ black src tests
 flake8 src tests
 PYTHONPATH=src pytest
 ```
+
+### Step 25: Tag MLflow Tracking Milestone
+
+Merged the MLflow tracking work into `main` and tagged the Phase 3 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: mlflow tracking into main"
+git tag v0.3-mlflow-tracking
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=20
+git tag
+```
+
+Created tag:
+
+```text
+v0.3-mlflow-tracking
+```
+
+## Phase 4: Hyperparameter Tuning
+
+### Step 26: Add Hyperopt Dependency and Tuning Config
+
+Added Hyperopt for hyperparameter tuning.
+
+This step introduced:
+
+- `hyperopt` dependency
+- tuning configuration
+- Pydantic config support for tuning settings
+
+Configuration:
+
+```yaml
+tuning:
+  max_evals: 10
+```
+
+Config model:
+
+```python
+class TuningConfig(BaseModel):
+    max_evals: int
+```
+
+Updated app config:
+
+```python
+class AppConfig(BaseModel):
+    project: ProjectConfig
+    data: DataConfig
+    model: ModelConfig
+    mlflow: MLflowConfig
+    tuning: TuningConfig
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 27: Create Hyperparameter Tuning Module
+
+Created a Hyperopt tuning module in `src/mlops_lr/tune.py`.
+
+This step:
+
+- defines a search space for Logistic Regression
+- runs multiple trials with Hyperopt
+- logs every trial to MLflow
+- selects the best model by F1 score
+- logs the best model with signature and input example
+
+Search space:
+
+```python
+search_space = {
+    "C": hp.loguniform("C", -4, 2),
+    "solver": hp.choice("solver", ["liblinear", "lbfgs"]),
+    "max_iter": hp.choice("max_iter", [100, 500, 1000]),
+}
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.tune import tune_model; print(tune_model())"
+```
+
+### Step 28: Make Hyperopt Reproducible
+
+Updated hyperparameter tuning to use the project random seed.
+
+This step makes tuning more reproducible by setting:
+
+- Hyperopt random state
+- Logistic Regression random state
+
+Implementation:
+
+```python
+import numpy as np
+
+model = LogisticRegression(
+    C=params["C"],
+    solver=params["solver"],
+    max_iter=params["max_iter"],
+    random_state=config.data.random_state,
+)
+
+best_params = fmin(
+    fn=objective,
+    space=search_space,
+    algo=tpe.suggest,
+    max_evals=config.tuning.max_evals,
+    trials=trials,
+    rstate=np.random.default_rng(config.data.random_state),
+)
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 29: Decode and Log Best Hyperparameters
+
+Updated Hyperopt tuning so the best parameters are logged as real values instead of choice indexes.
+
+Before:
+
+```text
+best_solver_index
+best_max_iter_index
+```
+
+After:
+
+```text
+best_solver
+best_max_iter
+```
+
+Implementation:
+
+```python
+solver_options = ["liblinear", "lbfgs"]
+max_iter_options = [100, 500, 1000]
+
+search_space = {
+    "C": hp.loguniform("C", -4, 2),
+    "solver": hp.choice("solver", solver_options),
+    "max_iter": hp.choice("max_iter", max_iter_options),
+}
+
+best_decoded_params = {
+    "best_C": best_params["C"],
+    "best_solver": solver_options[best_params["solver"]],
+    "best_max_iter": max_iter_options[best_params["max_iter"]],
+}
+
+mlflow.log_params(best_decoded_params)
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.tune import tune_model; print(tune_model())"
+```
+
+### Step 30: Add Tuning Pipeline Entry Point
+
+Created a tuning pipeline entry point in `src/mlops_lr/tuning_pipeline.py`.
+
+The tuning pipeline runs:
+
+```text
+generate raw data
+→ create processed data
+→ run Hyperopt tuning
+→ log trials and best model to MLflow
+```
+
+Implementation:
+
+```python
+from mlops_lr.data import generate_raw_data
+from mlops_lr.features import create_processed_data
+from mlops_lr.logger import get_logger
+from mlops_lr.tune import tune_model
+
+
+logger = get_logger(__name__)
+
+
+def run_tuning_pipeline() -> tuple:
+    logger.info("Starting tuning pipeline")
+
+    generate_raw_data()
+    create_processed_data()
+    model, metrics, best_params = tune_model()
+
+    logger.info("Tuning pipeline completed")
+    return model, metrics, best_params
+
+
+if __name__ == "__main__":
+    run_tuning_pipeline()
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/tuning_pipeline.py
+```
