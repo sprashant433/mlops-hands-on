@@ -1637,3 +1637,41 @@ Then check MLflow UI:
 ```text
 Models → LoanApprovalModel
 ```
+
+### Step 34: Add Registry Utility Functions
+
+Added utility functions for working with the MLflow Model Registry.
+
+Utilities:
+
+- `get_mlflow_client()`
+- `get_latest_model_version(model_name)`
+
+Implementation:
+
+```python
+from mlflow.tracking import MlflowClient
+
+
+def get_mlflow_client() -> MlflowClient:
+    configure_mlflow()
+    return MlflowClient()
+
+
+def get_latest_model_version(model_name: str):
+    client = get_mlflow_client()
+    versions = client.search_model_versions(f"name='{model_name}'")
+
+    if not versions:
+        raise ValueError(f"No model versions found for: {model_name}")
+
+    return max(versions, key=lambda version: int(version.version))
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
