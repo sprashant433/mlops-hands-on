@@ -1551,3 +1551,41 @@ Created tag:
 ```text
 v0.4-hyperparameter-tuning
 ```
+
+## Phase 5: MLflow Registry
+
+### Step 32: Add Registry Configuration
+
+Added configuration for the MLflow Model Registry.
+
+This step introduced the registered model name:
+
+```text
+LoanApprovalModel
+```
+
+Configuration:
+
+```yaml
+mlflow:
+  tracking_uri: file:./mlruns
+  experiment_name: loan-approval-logistic-regression
+  registered_model_name: LoanApprovalModel
+```
+
+Config model:
+
+```python
+class MLflowConfig(BaseModel):
+    tracking_uri: str
+    experiment_name: str
+    registered_model_name: str
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```

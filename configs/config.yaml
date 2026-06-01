@@ -18,6 +18,8 @@ model:
 mlflow:
   tracking_uri: file:./mlruns
   experiment_name: loan-approval-logistic-regression
+  registered_model_name: LoanApprovalModel
 
 tuning:
   max_evals: 10
+
