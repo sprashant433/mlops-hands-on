@@ -24,7 +24,7 @@ from mlops_lr.mlflow_utils import configure_mlflow
 logger = get_logger(__name__)
 
 
-def tune_model() -> tuple[LogisticRegression, dict[str, float]]:
+def tune_model() -> tuple[LogisticRegression, dict[str, float], dict]:
     config = load_config()
     configure_mlflow()
 
@@ -42,10 +42,13 @@ def tune_model() -> tuple[LogisticRegression, dict[str, float]]:
         stratify=y,
     )
 
+    solver_options = ["liblinear", "lbfgs"]
+    max_iter_options = [100, 500, 1000]
+
     search_space = {
         "C": hp.loguniform("C", -4, 2),
-        "solver": hp.choice("solver", ["liblinear", "lbfgs"]),
-        "max_iter": hp.choice("max_iter", [100, 500, 1000]),
+        "solver": hp.choice("solver", solver_options),
+        "max_iter": hp.choice("max_iter", max_iter_options),
     }
 
     best_model = None
@@ -99,13 +102,14 @@ def tune_model() -> tuple[LogisticRegression, dict[str, float]]:
             rstate=np.random.default_rng(config.data.random_state),
         )
 
-        mlflow.log_params(
-            {
-                "best_C": best_params["C"],
-                "best_solver_index": best_params["solver"],
-                "best_max_iter_index": best_params["max_iter"],
-            }
-        )
+        best_decoded_params = {
+            "best_C": best_params["C"],
+            "best_solver": solver_options[best_params["solver"]],
+            "best_max_iter": max_iter_options[best_params["max_iter"]],
+        }
+
+        mlflow.log_params(best_decoded_params)
+
         mlflow.log_metrics(
             {f"best_{key}": value for key, value in best_metrics.items()}
         )
@@ -127,4 +131,4 @@ def tune_model() -> tuple[LogisticRegression, dict[str, float]]:
 
     logger.info("Best tuning metrics: %s", best_metrics)
 
-    return best_model, best_metrics
+    return best_model, best_metrics, best_decoded_params

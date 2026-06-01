@@ -13,8 +13,13 @@ def test_tune_model():
     processed_data = build_features(raw_data)
     processed_data.to_csv(config.data.processed_path, index=False)
 
-    model, metrics = tune_model()
+    model, metrics, best_params = tune_model()
 
     assert isinstance(model, LogisticRegression)
     assert "f1" in metrics
     assert 0 <= metrics["f1"] <= 1
+    assert "best_C" in best_params
+    assert "best_solver" in best_params
+    assert "best_max_iter" in best_params
+    assert best_params["best_solver"] in ["liblinear", "lbfgs"]
+    assert best_params["best_max_iter"] in [100, 500, 1000]

@@ -1428,3 +1428,51 @@ black src tests
 flake8 src tests
 PYTHONPATH=src pytest
 ```
+
+### Step 29: Decode and Log Best Hyperparameters
+
+Updated Hyperopt tuning so the best parameters are logged as real values instead of choice indexes.
+
+Before:
+
+```text
+best_solver_index
+best_max_iter_index
+```
+
+After:
+
+```text
+best_solver
+best_max_iter
+```
+
+Implementation:
+
+```python
+solver_options = ["liblinear", "lbfgs"]
+max_iter_options = [100, 500, 1000]
+
+search_space = {
+    "C": hp.loguniform("C", -4, 2),
+    "solver": hp.choice("solver", solver_options),
+    "max_iter": hp.choice("max_iter", max_iter_options),
+}
+
+best_decoded_params = {
+    "best_C": best_params["C"],
+    "best_solver": solver_options[best_params["solver"]],
+    "best_max_iter": max_iter_options[best_params["max_iter"]],
+}
+
+mlflow.log_params(best_decoded_params)
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.tune import tune_model; print(tune_model())"
+```
