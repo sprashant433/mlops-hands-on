@@ -14,8 +14,8 @@ def test_evaluate_model():
     processed_data = build_features(raw_data)
     processed_data.to_csv(config.data.processed_path, index=False)
 
-    train_model()
-    metrics = evaluate_model()
+    _, run_id = train_model()
+    metrics = evaluate_model(run_id=run_id)
 
     assert Path(config.model.metrics_path).exists()
 
@@ -30,3 +30,19 @@ def test_evaluate_model():
     assert 0 <= metrics["recall"] <= 1
     assert 0 <= metrics["f1"] <= 1
     assert 0 <= metrics["roc_auc"] <= 1
+    assert Path("reports/confusion_matrix.png").exists()
+
+
+def test_evaluate_model_without_run_id():
+    config = load_config()
+
+    raw_data = generate_raw_data(n_samples=300)
+    processed_data = build_features(raw_data)
+    processed_data.to_csv(config.data.processed_path, index=False)
+
+    train_model()
+    metrics = evaluate_model()
+
+    assert Path(config.model.metrics_path).exists()
+    assert Path("reports/confusion_matrix.png").exists()
+    assert "accuracy" in metrics

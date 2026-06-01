@@ -857,3 +857,433 @@ develop
 ```
 
 This simulates how a pull request would move feature work into the integration branch.
+
+### Step 17: Merge Develop into Main
+
+Practiced the release flow from `develop` into `main`.
+
+Flow:
+
+```text
+develop
+↓
+main
+```
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: develop into main"
+git tag v0.2-git-workflow
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=15
+git tag
+```
+
+Created tag:
+
+```text
+v0.2-git-workflow
+```
+
+## Phase 3: MLflow Tracking
+
+### Step 18: Add MLflow Dependency and Config
+
+Added MLflow as the experiment tracking tool.
+
+This step introduced:
+
+- `mlflow` dependency
+- MLflow tracking URI
+- MLflow experiment name
+- Pydantic config support for MLflow settings
+
+Configuration:
+
+```yaml
+mlflow:
+  tracking_uri: file:./mlruns
+  experiment_name: loan-approval-logistic-regression
+```
+
+Config model:
+
+```python
+class MLflowConfig(BaseModel):
+    tracking_uri: str
+    experiment_name: str
+```
+
+Updated app config:
+
+```python
+class AppConfig(BaseModel):
+    project: ProjectConfig
+    data: DataConfig
+    model: ModelConfig
+    mlflow: MLflowConfig
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 19: Track Training Runs with MLflow
+
+Updated training so each model training run is tracked in MLflow.
+
+This step logs:
+
+- model name
+- max iterations
+- test size
+- random state
+- trained scikit-learn model
+- serialized local model artifact
+
+Implementation:
+
+```python
+import mlflow
+import mlflow.sklearn
+
+
+def train_model() -> LogisticRegression:
+    config = load_config()
+    target_column = config.data.target_column
+
+    mlflow.set_tracking_uri(config.mlflow.tracking_uri)
+    mlflow.set_experiment(config.mlflow.experiment_name)
+
+    data = pd.read_csv(config.data.processed_path)
+
+    X = data.drop(columns=[target_column])
+    y = data[target_column]
+
+    X_train, _, y_train, _ = train_test_split(
+        X,
+        y,
+        test_size=config.data.test_size,
+        random_state=config.data.random_state,
+        stratify=y,
+    )
+
+    logger.info("Training model")
+
+    with mlflow.start_run(run_name="logistic-regression-training"):
+        mlflow.log_param("model_name", config.model.name)
+        mlflow.log_param("max_iter", config.model.max_iter)
+        mlflow.log_param("test_size", config.data.test_size)
+        mlflow.log_param("random_state", config.data.random_state)
+
+        model = LogisticRegression(max_iter=config.model.max_iter)
+        model.fit(X_train, y_train)
+
+        output_path = Path(config.model.output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump(model, output_path)
+
+        mlflow.sklearn.log_model(model, name="model")
+        mlflow.log_artifact(str(output_path))
+
+    logger.info("Model saved to %s", output_path)
+
+    return model
+```
+
+Model signature update:
+
+```python
+from mlflow.models.signature import infer_signature
+
+input_example = X_train.head(5)
+model_signature = infer_signature(X_train, model.predict(X_train))
+
+mlflow.sklearn.log_model(
+    model,
+    name="model",
+    signature=model_signature,
+    input_example=input_example,
+)
+```
+
+This removes the MLflow warning about missing model signature and gives the model an explicit input/output schema.
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/pipeline.py
+mlflow ui --backend-store-uri ./mlruns
+```
+
+Open:
+
+```text
+http://127.0.0.1:5000
+```
+
+### Step 20: Log Evaluation Metrics to MLflow
+
+Updated the pipeline so evaluation metrics are logged to the same MLflow run created during training.
+
+This step logs:
+
+- accuracy
+- precision
+- recall
+- f1
+- roc_auc
+- metrics JSON artifact
+
+Training now returns the active MLflow run ID:
+
+```python
+def train_model() -> tuple[LogisticRegression, str]:
+    ...
+    with mlflow.start_run(run_name="logistic-regression-training"):
+        ...
+        run_id = mlflow.active_run().info.run_id
+
+    return model, run_id
+```
+
+Evaluation accepts an optional MLflow run ID:
+
+```python
+from typing import Optional
+
+
+def evaluate_model(run_id: Optional[str] = None) -> dict[str, float]:
+    ...
+    if run_id:
+        with mlflow.start_run(run_id=run_id):
+            mlflow.log_metrics(metrics)
+            mlflow.log_artifact(str(output_path))
+
+    return metrics
+```
+
+Pipeline connects both steps:
+
+```python
+_, run_id = train_model()
+metrics = evaluate_model(run_id=run_id)
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/pipeline.py
+mlflow ui --backend-store-uri ./mlruns
+```
+
+### Step 21: Log Confusion Matrix Artifact to MLflow
+
+Added a confusion matrix artifact during model evaluation.
+
+This step introduced:
+
+- `matplotlib`
+- confusion matrix generation
+- `reports/confusion_matrix.png`
+- MLflow artifact logging for the confusion matrix
+
+Implementation:
+
+```python
+import matplotlib.pyplot as plt
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+
+with output_path.open("w") as file:
+    json.dump(metrics, file, indent=2)
+
+cm = confusion_matrix(y_test, y_pred)
+display = ConfusionMatrixDisplay(confusion_matrix=cm)
+display.plot()
+plt.title("Confusion Matrix")
+plt.savefig(confusion_matrix_path, bbox_inches="tight")
+plt.close()
+
+if run_id:
+    with mlflow.start_run(run_id=run_id):
+        mlflow.log_metrics(metrics)
+        mlflow.log_artifact(str(output_path))
+        mlflow.log_artifact(str(confusion_matrix_path))
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/pipeline.py
+```
+
+### Step 22: Standalone MLflow Evaluation Logging
+
+Updated evaluation so it can log to MLflow with or without a training run ID.
+
+Behavior:
+
+- with `run_id`: logs metrics and artifacts to the existing training run
+- without `run_id`: creates a new evaluation run
+
+Implementation:
+
+```python
+mlflow.set_tracking_uri(config.mlflow.tracking_uri)
+mlflow.set_experiment(config.mlflow.experiment_name)
+
+if run_id:
+    with mlflow.start_run(run_id=run_id):
+        mlflow.log_metrics(metrics)
+        mlflow.log_artifact(str(output_path))
+        mlflow.log_artifact(str(confusion_matrix_path))
+else:
+    with mlflow.start_run(run_name="logistic-regression-evaluation"):
+        mlflow.log_metrics(metrics)
+        mlflow.log_artifact(str(output_path))
+        mlflow.log_artifact(str(confusion_matrix_path))
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.evaluate import evaluate_model; print(evaluate_model())"
+```
+
+Troubleshooting:
+
+When running the full pipeline, pass the training run ID into evaluation so evaluation artifacts land on the same training run:
+
+```python
+_, run_id = train_model()
+metrics = evaluate_model(run_id=run_id)
+```
+
+If `evaluate_model()` is called without a `run_id`, MLflow creates a separate evaluation run. In that case, artifacts like `confusion_matrix.png` appear on the evaluation run, not the training run.
+
+### Step 23: MLflow Helper Module
+
+Created a reusable MLflow helper in `src/mlops_lr/mlflow_utils.py`.
+
+This keeps MLflow setup consistent across training, evaluation, and future tracking features.
+
+Implementation:
+
+```python
+import mlflow
+
+from mlops_lr.config import load_config
+
+
+def configure_mlflow() -> None:
+    config = load_config()
+
+    mlflow.set_tracking_uri(config.mlflow.tracking_uri)
+    mlflow.set_experiment(config.mlflow.experiment_name)
+```
+
+Usage:
+
+```python
+from mlops_lr.mlflow_utils import configure_mlflow
+
+configure_mlflow()
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 24: MLflow Tracking Verification Test
+
+Added a focused MLflow tracking test to verify that a training/evaluation run contains:
+
+- logged parameters
+- logged metrics
+- logged artifacts
+
+Artifacts verified:
+
+- `metrics.json`
+- `confusion_matrix.png`
+- `logistic_regression.pkl`
+
+Test:
+
+```python
+from pathlib import Path
+
+import mlflow
+
+from mlops_lr.config import load_config
+from mlops_lr.data import generate_raw_data
+from mlops_lr.evaluate import evaluate_model
+from mlops_lr.features import build_features
+from mlops_lr.mlflow_utils import configure_mlflow
+from mlops_lr.train import train_model
+
+
+def test_mlflow_tracking_run_contains_params_metrics_and_artifacts():
+    config = load_config()
+    configure_mlflow()
+
+    raw_data = generate_raw_data(n_samples=300)
+    processed_data = build_features(raw_data)
+    processed_data.to_csv(config.data.processed_path, index=False)
+
+    _, run_id = train_model()
+    metrics = evaluate_model(run_id=run_id)
+
+    run = mlflow.get_run(run_id)
+
+    assert run.data.params["model_name"] == config.model.name
+    assert run.data.params["max_iter"] == str(config.model.max_iter)
+
+    assert run.data.metrics["accuracy"] == metrics["accuracy"]
+    assert run.data.metrics["precision"] == metrics["precision"]
+    assert run.data.metrics["recall"] == metrics["recall"]
+    assert run.data.metrics["f1"] == metrics["f1"]
+    assert run.data.metrics["roc_auc"] == metrics["roc_auc"]
+
+    artifact_uri = run.info.artifact_uri.replace("file://", "")
+    artifact_path = Path(artifact_uri)
+
+    assert (artifact_path / "metrics.json").exists()
+    assert (artifact_path / "confusion_matrix.png").exists()
+    assert (artifact_path / "logistic_regression.pkl").exists()
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
