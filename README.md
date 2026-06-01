@@ -1313,3 +1313,48 @@ Created tag:
 ```text
 v0.3-mlflow-tracking
 ```
+
+## Phase 4: Hyperparameter Tuning
+
+### Step 26: Add Hyperopt Dependency and Tuning Config
+
+Added Hyperopt for hyperparameter tuning.
+
+This step introduced:
+
+- `hyperopt` dependency
+- tuning configuration
+- Pydantic config support for tuning settings
+
+Configuration:
+
+```yaml
+tuning:
+  max_evals: 10
+```
+
+Config model:
+
+```python
+class TuningConfig(BaseModel):
+    max_evals: int
+```
+
+Updated app config:
+
+```python
+class AppConfig(BaseModel):
+    project: ProjectConfig
+    data: DataConfig
+    model: ModelConfig
+    mlflow: MLflowConfig
+    tuning: TuningConfig
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
