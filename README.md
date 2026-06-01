@@ -1878,3 +1878,29 @@ Check:
 ```text
 Models → LoanApprovalModel → alias: production
 ```
+
+### Step 38: Tag Model Registry Milestone
+
+Merged the MLflow Model Registry work into `main` and tagged the Phase 5 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: mlflow model registry into main"
+git tag v0.5-model-registry
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=30
+git tag
+```
+
+Created tag:
+
+```text
+v0.5-model-registry
+```
