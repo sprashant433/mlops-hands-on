@@ -1389,3 +1389,42 @@ flake8 src tests
 PYTHONPATH=src pytest
 PYTHONPATH=src python -c "from mlops_lr.tune import tune_model; print(tune_model())"
 ```
+
+### Step 28: Make Hyperopt Reproducible
+
+Updated hyperparameter tuning to use the project random seed.
+
+This step makes tuning more reproducible by setting:
+
+- Hyperopt random state
+- Logistic Regression random state
+
+Implementation:
+
+```python
+import numpy as np
+
+model = LogisticRegression(
+    C=params["C"],
+    solver=params["solver"],
+    max_iter=params["max_iter"],
+    random_state=config.data.random_state,
+)
+
+best_params = fmin(
+    fn=objective,
+    space=search_space,
+    algo=tpe.suggest,
+    max_evals=config.tuning.max_evals,
+    trials=trials,
+    rstate=np.random.default_rng(config.data.random_state),
+)
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```

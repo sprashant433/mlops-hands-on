@@ -1,5 +1,5 @@
 from pathlib import Path
-
+import numpy as np
 import joblib
 import mlflow
 import mlflow.sklearn
@@ -62,6 +62,7 @@ def tune_model() -> tuple[LogisticRegression, dict[str, float]]:
                 C=params["C"],
                 solver=params["solver"],
                 max_iter=params["max_iter"],
+                random_state=config.data.random_state,
             )
             model.fit(X_train, y_train)
 
@@ -95,7 +96,7 @@ def tune_model() -> tuple[LogisticRegression, dict[str, float]]:
             algo=tpe.suggest,
             max_evals=config.tuning.max_evals,
             trials=trials,
-            rstate=None,
+            rstate=np.random.default_rng(config.data.random_state),
         )
 
         mlflow.log_params(
