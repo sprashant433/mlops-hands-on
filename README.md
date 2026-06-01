@@ -1287,3 +1287,29 @@ black src tests
 flake8 src tests
 PYTHONPATH=src pytest
 ```
+
+### Step 25: Tag MLflow Tracking Milestone
+
+Merged the MLflow tracking work into `main` and tagged the Phase 3 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: mlflow tracking into main"
+git tag v0.3-mlflow-tracking
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=20
+git tag
+```
+
+Created tag:
+
+```text
+v0.3-mlflow-tracking
+```
