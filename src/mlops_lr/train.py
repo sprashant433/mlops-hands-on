@@ -47,7 +47,11 @@ def train_model() -> tuple[LogisticRegression, str]:
         model.fit(X_train, y_train)
 
         input_example = X_train.iloc[[0]]
-        model_signature = infer_signature(X_train, model.predict(X_train))
+        prediction_example = pd.DataFrame(
+            {config.data.target_column: model.predict(X_train)}
+        )
+
+        model_signature = infer_signature(X_train, prediction_example)
 
         output_path = Path(config.model.output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)

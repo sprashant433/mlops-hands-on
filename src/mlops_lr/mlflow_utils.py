@@ -85,3 +85,33 @@ def _transition_file_store_model_version_stage(
 
     with metadata_path.open("w") as file:
         yaml.safe_dump(metadata, file, sort_keys=False)
+
+
+def promote_model_version_to_stage(model_name: str, version: str, stage: str):
+    client = get_mlflow_client()
+
+    try:
+        client.transition_model_version_stage(
+            name=model_name,
+            version=version,
+            stage=stage,
+            archive_existing_versions=False,
+        )
+    except RepresenterError:
+        _transition_file_store_model_version_stage(
+            model_name=model_name,
+            version=version,
+            stage=stage,
+        )
+
+    alias = stage.lower()
+    client.set_registered_model_alias(
+        name=model_name,
+        alias=alias,
+        version=version,
+    )
+
+    return client.get_model_version(
+        name=model_name,
+        version=version,
+    )
