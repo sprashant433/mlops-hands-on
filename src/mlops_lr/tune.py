@@ -132,3 +132,7 @@ def tune_model() -> tuple[LogisticRegression, dict[str, float], dict]:
     logger.info("Best tuning metrics: %s", best_metrics)
 
     return best_model, best_metrics, best_decoded_params
+
+
+if __name__ == "__main__":
+    tune_model()
