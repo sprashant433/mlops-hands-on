@@ -123,7 +123,7 @@ def tune_model() -> tuple[LogisticRegression, dict[str, float], dict]:
 
         mlflow.sklearn.log_model(
             best_model,
-            name="best_model",
+            artifact_path="best_model",
             signature=model_signature,
             input_example=input_example,
             registered_model_name=config.mlflow.registered_model_name,

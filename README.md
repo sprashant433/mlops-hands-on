@@ -1675,3 +1675,39 @@ black src tests
 flake8 src tests
 PYTHONPATH=src pytest
 ```
+
+### Step 35: Promote Latest Model to Staging
+
+Added model promotion support for the MLflow Model Registry.
+
+Promotion function:
+
+```python
+def promote_latest_model_to_stage(model_name: str, stage: str):
+    client = get_mlflow_client()
+    latest_version = get_latest_model_version(model_name)
+
+    client.transition_model_version_stage(
+        name=model_name,
+        version=latest_version.version,
+        stage=stage,
+        archive_existing_versions=False,
+    )
+
+    return client.get_model_version(
+        name=model_name,
+        version=latest_version.version,
+    )
+```
+
+Manual promotion:
+
+```bash
+PYTHONPATH=src python -c "from mlops_lr.config import load_config; from mlops_lr.mlflow_utils import promote_latest_model_to_stage; config = load_config(); print(promote_latest_model_to_stage(config.mlflow.registered_model_name, 'Staging'))"
+```
+
+Check:
+
+```text
+Models → LoanApprovalModel → latest version → Staging
+```
