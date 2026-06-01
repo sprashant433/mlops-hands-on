@@ -1008,7 +1008,12 @@ Model signature update:
 from mlflow.models.signature import infer_signature
 
 input_example = X_train.head(5)
-model_signature = infer_signature(X_train, model.predict(X_train))
+prediction_example = pd.DataFrame(
+    {
+        config.data.target_column: model.predict(X_train),
+    }
+)
+model_signature = infer_signature(X_train, prediction_example)
 
 mlflow.sklearn.log_model(
     model,
@@ -1019,6 +1024,14 @@ mlflow.sklearn.log_model(
 ```
 
 This removes the MLflow warning about missing model signature and gives the model an explicit input/output schema.
+
+Schema note:
+
+- input schema contains only feature columns
+- output schema contains the predicted target column, `loan_approved`
+- old MLflow runs do not change after this update; create a new run to see the named output schema
+
+The target column should not appear in the input schema because inference requests do not provide the label.
 
 Run:
 
@@ -1370,6 +1383,7 @@ This step:
 - logs every trial to MLflow
 - selects the best model by F1 score
 - logs the best model with signature and input example
+- logs a named output schema for `loan_approved`
 
 Search space:
 
@@ -1379,6 +1393,17 @@ search_space = {
     "solver": hp.choice("solver", ["liblinear", "lbfgs"]),
     "max_iter": hp.choice("max_iter", [100, 500, 1000]),
 }
+```
+
+Named output schema:
+
+```python
+prediction_example = pd.DataFrame(
+    {
+        config.data.target_column: best_model.predict(X_train),
+    }
+)
+model_signature = infer_signature(X_train, prediction_example)
 ```
 
 Run:
@@ -1524,4 +1549,332 @@ black src tests
 flake8 src tests
 PYTHONPATH=src pytest
 PYTHONPATH=src python src/mlops_lr/tuning_pipeline.py
+```
+
+### Step 31: Tag Hyperparameter Tuning Milestone
+
+Merged the Hyperopt tuning work into `main` and tagged the Phase 4 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: hyperparameter tuning into main"
+git tag v0.4-hyperparameter-tuning
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=25
+git tag
+```
+
+Created tag:
+
+```text
+v0.4-hyperparameter-tuning
+```
+
+## Phase 5: MLflow Registry
+
+### Step 32: Add Registry Configuration
+
+Added configuration for the MLflow Model Registry.
+
+This step introduced the registered model name:
+
+```text
+LoanApprovalModel
+```
+
+Configuration:
+
+```yaml
+mlflow:
+  tracking_uri: file:./mlruns
+  experiment_name: loan-approval-logistic-regression
+  registered_model_name: LoanApprovalModel
+```
+
+Config model:
+
+```python
+class MLflowConfig(BaseModel):
+    tracking_uri: str
+    experiment_name: str
+    registered_model_name: str
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 33: Register Best Tuned Model
+
+Updated tuning so the best Hyperopt model is registered in the MLflow Model Registry.
+
+Registered model:
+
+```text
+LoanApprovalModel
+```
+
+MLflow setup now includes the registry URI:
+
+```python
+def configure_mlflow() -> None:
+    config = load_config()
+
+    mlflow.set_tracking_uri(config.mlflow.tracking_uri)
+    mlflow.set_registry_uri(config.mlflow.tracking_uri)
+    mlflow.set_experiment(config.mlflow.experiment_name)
+```
+
+Best model registration:
+
+```python
+mlflow.sklearn.log_model(
+    best_model,
+    name="best_model",
+    signature=model_signature,
+    input_example=input_example,
+    registered_model_name=config.mlflow.registered_model_name,
+)
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/tuning_pipeline.py
+```
+
+Then check MLflow UI:
+
+```text
+Models → LoanApprovalModel
+```
+
+### Step 34: Add Registry Utility Functions
+
+Added utility functions for working with the MLflow Model Registry.
+
+Utilities:
+
+- `get_mlflow_client()`
+- `get_latest_model_version(model_name)`
+
+Implementation:
+
+```python
+from mlflow.tracking import MlflowClient
+
+
+def get_mlflow_client() -> MlflowClient:
+    configure_mlflow()
+    return MlflowClient()
+
+
+def get_latest_model_version(model_name: str):
+    client = get_mlflow_client()
+    versions = client.search_model_versions(f"name='{model_name}'")
+
+    if not versions:
+        raise ValueError(f"No model versions found for: {model_name}")
+
+    return max(versions, key=lambda version: int(version.version))
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 35: Promote Latest Model to Staging
+
+Added model promotion support for the MLflow Model Registry.
+
+Promotion function:
+
+```python
+def promote_latest_model_to_stage(model_name: str, stage: str):
+    client = get_mlflow_client()
+    latest_version = get_latest_model_version(model_name)
+
+    client.transition_model_version_stage(
+        name=model_name,
+        version=latest_version.version,
+        stage=stage,
+        archive_existing_versions=False,
+    )
+
+    return client.get_model_version(
+        name=model_name,
+        version=latest_version.version,
+    )
+```
+
+Manual promotion:
+
+```bash
+PYTHONPATH=src python -c "from mlops_lr.config import load_config; from mlops_lr.mlflow_utils import promote_latest_model_to_stage; config = load_config(); print(promote_latest_model_to_stage(config.mlflow.registered_model_name, 'Staging'))"
+```
+
+Check:
+
+```text
+Models → LoanApprovalModel → latest version → Staging
+```
+
+MLflow 3 UI note:
+
+MLflow registry stages are deprecated and may not be shown clearly in the UI. To make promotion visible, the promotion helper also sets a model alias matching the stage name.
+
+For staging promotion:
+
+```text
+stage: Staging
+alias: staging
+```
+
+The UI should show the alias on the registered model version:
+
+```text
+Models → LoanApprovalModel → version → aliases
+```
+
+Promotion now verifies both:
+
+```python
+assert promoted_version.current_stage == "Staging"
+
+client = get_mlflow_client()
+aliased_version = client.get_model_version_by_alias(
+    config.mlflow.registered_model_name,
+    "staging",
+)
+
+assert aliased_version.version == promoted_version.version
+```
+
+### Step 36: Promote Latest Model to Production
+
+Added support for promoting the latest registered model version to `Production`.
+
+Because MLflow registry stages are deprecated and may not be shown clearly in MLflow 3 UI, promotion also sets a model alias.
+
+For production promotion:
+
+```text
+stage: Production
+alias: production
+```
+
+Test:
+
+```python
+from mlops_lr.config import load_config
+from mlops_lr.data import generate_raw_data
+from mlops_lr.features import build_features
+from mlops_lr.mlflow_utils import get_mlflow_client, promote_latest_model_to_stage
+from mlops_lr.tune import tune_model
+
+
+def test_promote_latest_model_to_production():
+    config = load_config()
+
+    raw_data = generate_raw_data(n_samples=300)
+    processed_data = build_features(raw_data)
+    processed_data.to_csv(config.data.processed_path, index=False)
+
+    tune_model()
+
+    promoted_version = promote_latest_model_to_stage(
+        config.mlflow.registered_model_name,
+        "Production",
+    )
+
+    assert promoted_version.current_stage == "Production"
+
+    client = get_mlflow_client()
+    aliased_version = client.get_model_version_by_alias(
+        config.mlflow.registered_model_name,
+        "production",
+    )
+
+    assert aliased_version.version == promoted_version.version
+```
+
+Manual promotion:
+
+```bash
+PYTHONPATH=src python -c "from mlops_lr.config import load_config; from mlops_lr.mlflow_utils import promote_latest_model_to_stage; config = load_config(); print(promote_latest_model_to_stage(config.mlflow.registered_model_name, 'Production'))"
+```
+
+Check:
+
+```text
+Models → LoanApprovalModel → latest version → alias: production
+```
+
+### Step 37: Add Rollback Support
+
+Added support for promoting a specific model version to a target stage.
+
+This enables rollback by moving an older known-good version back to `Production`.
+
+Implementation:
+
+```python
+def promote_model_version_to_stage(model_name: str, version: str, stage: str):
+    client = get_mlflow_client()
+
+    try:
+        client.transition_model_version_stage(
+            name=model_name,
+            version=version,
+            stage=stage,
+            archive_existing_versions=False,
+        )
+    except RepresenterError:
+        _transition_file_store_model_version_stage(
+            model_name=model_name,
+            version=version,
+            stage=stage,
+        )
+
+    alias = stage.lower()
+    client.set_registered_model_alias(
+        name=model_name,
+        alias=alias,
+        version=version,
+    )
+
+    return client.get_model_version(
+        name=model_name,
+        version=version,
+    )
+```
+
+Manual rollback example:
+
+```bash
+PYTHONPATH=src python -c "from mlops_lr.config import load_config; from mlops_lr.mlflow_utils import promote_model_version_to_stage; config = load_config(); print(promote_model_version_to_stage(config.mlflow.registered_model_name, '1', 'Production'))"
+```
+
+Check:
+
+```text
+Models → LoanApprovalModel → alias: production
 ```

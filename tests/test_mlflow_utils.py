@@ -10,3 +10,4 @@ def test_configure_mlflow():
     configure_mlflow()
 
     assert mlflow.get_tracking_uri() == config.mlflow.tracking_uri
+    assert mlflow.get_registry_uri() == config.mlflow.tracking_uri

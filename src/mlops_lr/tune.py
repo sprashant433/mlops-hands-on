@@ -119,13 +119,18 @@ def tune_model() -> tuple[LogisticRegression, dict[str, float], dict]:
         joblib.dump(best_model, output_path)
 
         input_example = X_train.iloc[[0]]
-        model_signature = infer_signature(X_train, best_model.predict(X_train))
+        prediction_example = pd.DataFrame(
+            {config.data.target_column: best_model.predict(X_train)}
+        )
+
+        model_signature = infer_signature(X_train, prediction_example)
 
         mlflow.sklearn.log_model(
             best_model,
-            name="best_model",
+            artifact_path="best_model",
             signature=model_signature,
             input_example=input_example,
+            registered_model_name=config.mlflow.registered_model_name,
         )
         mlflow.log_artifact(str(output_path))
 
