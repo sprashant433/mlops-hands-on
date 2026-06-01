@@ -1,7 +1,7 @@
 from mlops_lr.config import load_config
 from mlops_lr.data import generate_raw_data
 from mlops_lr.features import build_features
-from mlops_lr.mlflow_utils import promote_latest_model_to_stage
+from mlops_lr.mlflow_utils import get_mlflow_client, promote_latest_model_to_stage
 from mlops_lr.tune import tune_model
 
 
@@ -20,3 +20,11 @@ def test_promote_latest_model_to_staging():
     )
 
     assert promoted_version.current_stage == "Staging"
+
+    client = get_mlflow_client()
+    aliased_version = client.get_model_version_by_alias(
+        config.mlflow.registered_model_name,
+        "staging",
+    )
+
+    assert aliased_version.version == promoted_version.version

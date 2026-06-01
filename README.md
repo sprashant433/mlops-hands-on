@@ -1711,3 +1711,34 @@ Check:
 ```text
 Models → LoanApprovalModel → latest version → Staging
 ```
+
+MLflow 3 UI note:
+
+MLflow registry stages are deprecated and may not be shown clearly in the UI. To make promotion visible, the promotion helper also sets a model alias matching the stage name.
+
+For staging promotion:
+
+```text
+stage: Staging
+alias: staging
+```
+
+The UI should show the alias on the registered model version:
+
+```text
+Models → LoanApprovalModel → version → aliases
+```
+
+Promotion now verifies both:
+
+```python
+assert promoted_version.current_stage == "Staging"
+
+client = get_mlflow_client()
+aliased_version = client.get_model_version_by_alias(
+    config.mlflow.registered_model_name,
+    "staging",
+)
+
+assert aliased_version.version == promoted_version.version
+```

@@ -50,6 +50,13 @@ def promote_latest_model_to_stage(model_name: str, stage: str):
             stage=stage,
         )
 
+    alias = stage.lower()
+    client.set_registered_model_alias(
+        name=model_name,
+        alias=alias,
+        version=latest_version.version,
+    )
+
     return client.get_model_version(
         name=model_name,
         version=latest_version.version,
