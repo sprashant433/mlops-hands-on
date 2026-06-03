@@ -3,6 +3,8 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Counter, Histogram
 from mlops_lr.tracing import configure_tracing
 from opentelemetry import trace
+from uuid import uuid4
+from fastapi import Request
 
 from mlops_lr.config import load_config
 from mlops_lr.model_service import ModelService
@@ -51,6 +53,17 @@ PREDICTION_PROBABILITY = Histogram(
 )
 
 
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    request_id = request.headers.get("x-request-id", str(uuid4()))
+    request.state.request_id = request_id
+
+    response = await call_next(request)
+    response.headers["x-request-id"] = request_id
+
+    return response
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {
@@ -76,30 +89,33 @@ def model_info() -> dict[str, str]:
 
 
 @app.post("/predict", response_model=PredictionResponse)
-def predict(request: PredictionRequest) -> PredictionResponse:
+def predict(payload: PredictionRequest, http_request: Request) -> PredictionResponse:
     PREDICTION_COUNT.inc()
+    request_id = http_request.state.request_id
 
     try:
         with tracer.start_as_current_span("model_prediction") as span:
             config = load_config()
             span.set_attribute("model.name", config.mlflow.registered_model_name)
             span.set_attribute("model.stage", config.serving.model_stage)
-            span.set_attribute("request.credit_score", request.credit_score)
-            span.set_attribute("request.debt_to_income", request.debt_to_income)
+            span.set_attribute("request.credit_score", payload.credit_score)
+            span.set_attribute("request.debt_to_income", payload.debt_to_income)
 
-            prediction, probability = model_service.predict(request)
+            prediction, probability = model_service.predict(payload)
 
             span.set_attribute("prediction.loan_approved", prediction)
             span.set_attribute("prediction.probability", probability)
 
             PREDICTION_PROBABILITY.observe(probability)
+
             logger.info(
                 "prediction_completed",
                 extra={
+                    "request_id": request_id,
                     "loan_approved": prediction,
                     "probability": probability,
-                    "credit_score": request.credit_score,
-                    "debt_to_income": request.debt_to_income,
+                    "credit_score": payload.credit_score,
+                    "debt_to_income": payload.debt_to_income,
                     **get_current_trace_context(),
                 },
             )
@@ -108,8 +124,9 @@ def predict(request: PredictionRequest) -> PredictionResponse:
         logger.exception(
             "prediction_failed",
             extra={
-                "credit_score": request.credit_score,
-                "debt_to_income": request.debt_to_income,
+                "request_id": request_id,
+                "credit_score": payload.credit_score,
+                "debt_to_income": payload.debt_to_income,
                 **get_current_trace_context(),
             },
         )

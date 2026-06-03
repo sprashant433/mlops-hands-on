@@ -3697,3 +3697,116 @@ Query:
 ```logql
 {compose_service="api"} |= "prediction_completed"
 ```
+
+### Step 78: Add Log Correlation IDs
+
+Added request correlation IDs to API responses and structured logs.
+
+A request ID helps connect one request across API response headers, JSON logs, Loki, and Jaeger.
+
+Request ID middleware:
+
+```python
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    request_id = request.headers.get("x-request-id", str(uuid4()))
+    request.state.request_id = request_id
+
+    response = await call_next(request)
+    response.headers["x-request-id"] = request_id
+
+    return response
+```
+
+Prediction endpoint now uses separate names for the request body and HTTP request:
+
+```python
+@app.post("/predict", response_model=PredictionResponse)
+def predict(payload: PredictionRequest, http_request: Request) -> PredictionResponse:
+    PREDICTION_COUNT.inc()
+    request_id = http_request.state.request_id
+```
+
+Prediction success log:
+
+```python
+logger.info(
+    "prediction_completed",
+    extra={
+        "request_id": request_id,
+        "loan_approved": prediction,
+        "probability": probability,
+        "credit_score": payload.credit_score,
+        "debt_to_income": payload.debt_to_income,
+        **get_current_trace_context(),
+    },
+)
+```
+
+Prediction failure log:
+
+```python
+logger.exception(
+    "prediction_failed",
+    extra={
+        "request_id": request_id,
+        "credit_score": payload.credit_score,
+        "debt_to_income": payload.debt_to_income,
+        **get_current_trace_context(),
+    },
+)
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+Rebuild API:
+
+```bash
+docker compose up -d --build api
+```
+
+Test with custom request ID:
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -H "x-request-id: test-request-123" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+```
+
+Expected response header:
+
+```text
+x-request-id: test-request-123
+```
+
+Check Docker logs:
+
+```bash
+docker logs mlops-logistic-regression-api --tail 20
+```
+
+Expected log field:
+
+```json
+"request_id": "test-request-123"
+```
+
+Search in Grafana Loki:
+
+```logql
+{compose_service="api"} |= "test-request-123"
+```
