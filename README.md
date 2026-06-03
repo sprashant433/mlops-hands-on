@@ -2772,3 +2772,29 @@ CD now reuses the same script:
       - name: Smoke test Docker image
         run: ./scripts/smoke_test_api.sh mlops-logistic-regression-api:${{ github.sha }}
 ```
+
+### Step 62: Tag CD Milestone
+
+Merged the CD pipeline work into `main` and tagged the Phase 10 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: cd pipeline into main"
+git tag v0.9-cd
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=55
+git tag
+```
+
+Created tag:
+
+```text
+v0.9-cd
+```
