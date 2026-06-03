@@ -2863,3 +2863,52 @@ PYTHONPATH=src pytest
 PYTHONPATH=src python src/mlops_lr/serve.py
 curl http://127.0.0.1:8000/metrics
 ```
+
+### Step 65: Add Prometheus Config
+
+Added Prometheus configuration for scraping FastAPI metrics.
+
+Prometheus config:
+
+```yaml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "mlops-api"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+```
+
+Docker Compose Prometheus service:
+
+```yaml
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: mlops-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - api
+```
+
+Run:
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+```text
+http://127.0.0.1:9090
+```
+
+Check:
+
+```text
+Status → Targets → mlops-api
+```

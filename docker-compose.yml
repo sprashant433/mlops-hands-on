@@ -12,3 +12,13 @@ services:
     volumes:
       - ./mlruns:/app/mlruns
       - ./configs:/app/configs
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: mlops-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - api
