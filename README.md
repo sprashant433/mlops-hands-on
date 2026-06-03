@@ -2727,3 +2727,48 @@ The artifact can later be downloaded and loaded with:
 ```bash
 docker load -i mlops-logistic-regression-api.tar
 ```
+
+### Step 61: Add Deployment Smoke Test Script
+
+Added a reusable Docker smoke test script.
+
+Script:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE_NAME="${1:-mlops-logistic-regression-api:latest}"
+CONTAINER_NAME="mlops-api-smoke-test"
+
+docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+
+docker run -d \
+  --name "${CONTAINER_NAME}" \
+  -p 8000:8000 \
+  "${IMAGE_NAME}"
+
+cleanup() {
+  docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+}
+
+trap cleanup EXIT
+
+sleep 10
+
+curl --fail http://127.0.0.1:8000/health
+```
+
+Run locally:
+
+```bash
+docker build -t mlops-logistic-regression-api:latest .
+./scripts/smoke_test_api.sh mlops-logistic-regression-api:latest
+```
+
+CD now reuses the same script:
+
+```yaml
+      - name: Smoke test Docker image
+        run: ./scripts/smoke_test_api.sh mlops-logistic-regression-api:${{ github.sha }}
+```

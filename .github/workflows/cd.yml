@@ -25,9 +25,13 @@ jobs:
             .
 
       - name: Smoke test Docker image
-        run: |
-          docker run -d --name api-test -p 8000:8000 mlops-logistic-regression-api:${{ github.sha }}
-          sleep 10
-          curl --fail http://127.0.0.1:8000/health
-          docker stop api-test
-          docker rm api-test
+        run: ./scripts/smoke_test_api.sh mlops-logistic-regression-api:${{ github.sha }}
+
+      - name: Save Docker image artifact
+        run: docker save mlops-logistic-regression-api:${{ github.sha }} -o mlops-logistic-regression-api.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: mlops-logistic-regression-api.tar
