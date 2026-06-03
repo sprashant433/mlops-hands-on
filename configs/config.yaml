@@ -20,6 +20,11 @@ mlflow:
   experiment_name: loan-approval-logistic-regression
   registered_model_name: LoanApprovalModel
 
+serving:
+  host: 0.0.0.0
+  port: 8000
+  model_stage: Production
+
 tuning:
   max_evals: 10
 

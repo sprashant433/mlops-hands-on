@@ -12,3 +12,6 @@ def test_load_config():
     assert config.mlflow.experiment_name == "loan-approval-logistic-regression"
     assert config.tuning.max_evals == 10
     assert config.mlflow.registered_model_name == "LoanApprovalModel"
+    assert config.serving.host == "0.0.0.0"
+    assert config.serving.port == 8000
+    assert config.serving.model_stage == "Production"

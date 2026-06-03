@@ -10,3 +10,6 @@ joblib
 mlflow
 matplotlib
 hyperopt
+fastapi
+uvicorn
+httpx

@@ -1992,3 +1992,315 @@ Run tuning mode:
 ```
 
 Use this for faster local iteration. Keep `conda.yaml` for reproducible environment definitions.
+
+### Step 41: Tag MLflow Projects Milestone
+
+Merged the MLflow Projects work into `main` and tagged the Phase 6 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: mlflow projects into main"
+git tag v0.6-mlflow-projects
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=35
+git tag
+```
+
+Created tag:
+
+```text
+v0.6-mlflow-projects
+```
+
+## Phase 7: Build Inference Layer
+
+### Step 42: Add FastAPI Dependencies and Serving Config
+
+Added FastAPI serving dependencies and serving configuration.
+
+Dependencies:
+
+- `fastapi`
+- `uvicorn`
+- `httpx`
+
+Configuration:
+
+```yaml
+serving:
+  host: 0.0.0.0
+  port: 8000
+  model_stage: Production
+```
+
+Config model:
+
+```python
+class ServingConfig(BaseModel):
+    host: str
+    port: int
+    model_stage: str
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 43: Create Prediction Schemas
+
+Created Pydantic schemas for API request and response validation.
+
+Request schema:
+
+```python
+from pydantic import BaseModel, Field
+
+
+class PredictionRequest(BaseModel):
+    age: float = Field(..., ge=21, le=65)
+    income: float = Field(..., ge=0)
+    loan_amount: float = Field(..., ge=0)
+    credit_score: float = Field(..., ge=300, le=850)
+    employment_years: float = Field(..., ge=0)
+    debt_to_income: float = Field(..., ge=0, le=1)
+```
+
+Response schema:
+
+```python
+class PredictionResponse(BaseModel):
+    loan_approved: int
+    probability: float
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 44: Create Model Service
+
+Created a model service layer in `src/mlops_lr/model_service.py`.
+
+This service:
+
+- configures MLflow
+- loads the configured model from MLflow Registry
+- checks readiness
+- performs prediction
+- returns prediction and probability
+
+Model URI pattern:
+
+```text
+models:/LoanApprovalModel/Production
+```
+
+Implementation:
+
+```python
+import mlflow.pyfunc
+import pandas as pd
+
+from mlops_lr.config import load_config
+from mlops_lr.mlflow_utils import configure_mlflow
+from mlops_lr.schemas import PredictionRequest
+
+
+class ModelService:
+    def __init__(self) -> None:
+        self.config = load_config()
+        configure_mlflow()
+        self.model = None
+
+    def load_model(self) -> None:
+        model_uri = (
+            f"models:/{self.config.mlflow.registered_model_name}"
+            f"/{self.config.serving.model_stage}"
+        )
+        self.model = mlflow.pyfunc.load_model(model_uri)
+
+    def is_ready(self) -> bool:
+        return self.model is not None
+
+    def predict(self, request: PredictionRequest) -> tuple[int, float]:
+        if self.model is None:
+            self.load_model()
+
+        input_data = pd.DataFrame([request.model_dump()])
+        predictions = self.model.predict(input_data)
+
+        prediction = int(predictions[0])
+        probability = float(prediction)
+
+        if hasattr(self.model, "_model_impl"):
+            sklearn_model = getattr(self.model._model_impl, "sklearn_model", None)
+            if sklearn_model is not None and hasattr(sklearn_model, "predict_proba"):
+                probability = float(sklearn_model.predict_proba(input_data)[0][1])
+
+        return prediction, probability
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 45: Create FastAPI App
+
+Created the FastAPI inference app.
+
+Endpoints:
+
+```text
+/health
+/ready
+/model-info
+/predict
+```
+
+Run API:
+
+```bash
+PYTHONPATH=src uvicorn mlops_lr.api:app --host 0.0.0.0 --port 8000
+```
+
+Open Swagger docs:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+Example prediction request:
+
+```json
+{
+  "age": 35,
+  "income": 75000,
+  "loan_amount": 25000,
+  "credit_score": 700,
+  "employment_years": 5,
+  "debt_to_income": 0.3
+}
+```
+
+Example response:
+
+```json
+{
+  "loan_approved": 1,
+  "probability": 0.82
+}
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 46: Add API Server Entry Point
+
+Created a server entry point in `src/mlops_lr/serve.py`.
+
+This uses serving configuration from `configs/config.yaml`.
+
+Implementation:
+
+```python
+import uvicorn
+
+from mlops_lr.config import load_config
+
+
+def serve() -> None:
+    config = load_config()
+
+    uvicorn.run(
+        "mlops_lr.api:app",
+        host=config.serving.host,
+        port=config.serving.port,
+        reload=False,
+    )
+
+
+if __name__ == "__main__":
+    serve()
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/serve.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+### Step 47: Test Real API Prediction
+
+Tested the FastAPI app with a real MLflow Registry `Production` model.
+
+Promote latest model to production:
+
+```bash
+PYTHONPATH=src python -c "from mlops_lr.config import load_config; from mlops_lr.mlflow_utils import promote_latest_model_to_stage; config = load_config(); print(promote_latest_model_to_stage(config.mlflow.registered_model_name, 'Production'))"
+```
+
+Start API:
+
+```bash
+PYTHONPATH=src python src/mlops_lr/serve.py
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Prediction:
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+```
+
+Readiness:
+
+```bash
+curl http://127.0.0.1:8000/ready
+```
