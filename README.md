@@ -2629,3 +2629,56 @@ Created tag:
 ```text
 v0.8-ci
 ```
+
+## Phase 10: CD Pipeline
+
+### Step 58: Add GitHub Actions CD Workflow
+
+Added a GitHub Actions CD workflow.
+
+Triggers:
+
+- push to `main`
+- manual workflow dispatch
+
+CD steps:
+
+- checkout repository
+- set up Docker Buildx
+- build Docker image tagged with commit SHA
+- run container smoke test
+- verify `/health`
+
+Workflow:
+
+```yaml
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: docker build -t mlops-logistic-regression-api:${{ github.sha }} .
+
+      - name: Smoke test Docker image
+        run: |
+          docker run -d --name api-test -p 8000:8000 mlops-logistic-regression-api:${{ github.sha }}
+          sleep 10
+          curl --fail http://127.0.0.1:8000/health
+          docker stop api-test
+          docker rm api-test
+```
