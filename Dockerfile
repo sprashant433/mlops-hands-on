@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY configs ./configs
 COPY src ./src
 RUN mkdir -p ./mlruns
+# COPY mlruns ./mlruns
 
 EXPOSE 8000
 

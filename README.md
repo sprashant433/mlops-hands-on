@@ -2803,3 +2803,288 @@ Created tag:
 ```text
 v0.9-cd
 ```
+
+## Phase 11: Monitoring
+
+### Step 63: Add Prometheus Metrics Dependency
+
+Added Prometheus metrics support for FastAPI.
+
+Dependency:
+
+```text
+prometheus-fastapi-instrumentator
+```
+
+Install:
+
+```bash
+pip install -r requirements.txt
+```
+
+This dependency will expose application metrics through a `/metrics` endpoint.
+
+### Step 64: Expose `/metrics` Endpoint
+
+Instrumented the FastAPI app with Prometheus metrics.
+
+This adds:
+
+```text
+/metrics
+```
+
+Implementation:
+
+```python
+from prometheus_fastapi_instrumentator import Instrumentator
+
+model_service = ModelService()
+
+Instrumentator().instrument(app).expose(app)
+```
+
+Test:
+
+```python
+def test_metrics():
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "http_requests_total" in response.text or "http_request" in response.text
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/serve.py
+curl http://127.0.0.1:8000/metrics
+```
+
+### Step 65: Add Prometheus Config
+
+Added Prometheus configuration for scraping FastAPI metrics.
+
+Prometheus config:
+
+```yaml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "mlops-api"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+```
+
+Docker Compose Prometheus service:
+
+```yaml
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: mlops-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - api
+```
+
+Run:
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+```text
+http://127.0.0.1:9090
+```
+
+Check:
+
+```text
+Status → Targets → mlops-api
+```
+
+### Step 66: Add Grafana to Docker Compose
+
+Added Grafana for metrics visualization.
+
+Docker Compose Grafana service:
+
+```yaml
+  grafana:
+    image: grafana/grafana:latest
+    container_name: mlops-grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+```
+
+Run:
+
+```bash
+docker compose up --build
+```
+
+Open Grafana:
+
+```text
+http://127.0.0.1:3000
+```
+
+Default login:
+
+```text
+username: admin
+password: admin
+```
+
+Add Prometheus data source:
+
+```text
+http://prometheus:9090
+```
+
+### Step 67: Provision Grafana Data Source
+
+Added Grafana provisioning so Prometheus is automatically configured as a data source.
+
+Provisioning file:
+
+```yaml
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+```
+
+Docker Compose volume:
+
+```yaml
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+```
+
+Run:
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+```text
+http://127.0.0.1:3000
+```
+
+### Step 68: Add Custom Prediction Metrics
+
+Added ML-specific Prometheus metrics.
+
+Metrics:
+
+```text
+prediction_requests_total
+prediction_errors_total
+prediction_probability
+```
+
+Implementation:
+
+```python
+from prometheus_client import Counter, Histogram
+
+PREDICTION_COUNT = Counter(
+    "prediction_requests_total",
+    "Total number of prediction requests",
+)
+
+PREDICTION_ERRORS = Counter(
+    "prediction_errors_total",
+    "Total number of prediction errors",
+)
+
+PREDICTION_PROBABILITY = Histogram(
+    "prediction_probability",
+    "Predicted probability distribution",
+)
+```
+
+Prediction endpoint instrumentation:
+
+```python
+PREDICTION_COUNT.inc()
+
+try:
+    prediction, probability = model_service.predict(request)
+    PREDICTION_PROBABILITY.observe(probability)
+except Exception as error:
+    PREDICTION_ERRORS.inc()
+    raise HTTPException(status_code=500, detail=str(error)) from error
+```
+
+Check:
+
+```bash
+curl http://127.0.0.1:8000/metrics | grep prediction
+```
+
+### Step 69: Add Grafana Dashboard Provisioning
+
+Added a provisioned Grafana dashboard for API monitoring.
+
+Dashboard panels:
+
+- Prediction Requests
+- Prediction Errors
+- Request Latency
+- Prediction Probability
+
+Provisioning file:
+
+```yaml
+apiVersion: 1
+
+providers:
+  - name: MLOps Dashboards
+    orgId: 1
+    folder: MLOps
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards
+```
+
+Grafana dashboard volume:
+
+```yaml
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+```
+
+Open:
+
+```text
+http://127.0.0.1:3000
+```
+
+Check:
+
+```text
+Dashboards → MLOps → MLOps API Monitoring
+```

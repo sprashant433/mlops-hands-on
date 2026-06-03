@@ -13,3 +13,4 @@ hyperopt
 fastapi
 uvicorn
 httpx
+prometheus-fastapi-instrumentator
