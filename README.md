@@ -2544,3 +2544,24 @@ jobs:
       - name: Run Pytest
         run: PYTHONPATH=src pytest
 ```
+
+### Step 54: Add CI Model Pipeline Check
+
+Extended CI to run the ML pipeline and verify generated outputs.
+
+Additional CI steps:
+
+```yaml
+      - name: Run ML pipeline
+        run: PYTHONPATH=src python src/mlops_lr/pipeline.py
+
+      - name: Verify pipeline outputs
+        run: |
+          test -f data/raw.csv
+          test -f data/processed.csv
+          test -f models/logistic_regression.pkl
+          test -f reports/metrics.json
+          test -f reports/confusion_matrix.png
+```
+
+This ensures CI verifies both code quality and end-to-end ML pipeline execution.
