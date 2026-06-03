@@ -2330,3 +2330,55 @@ Created tag:
 ```text
 v0.6-fastapi-serving
 ```
+
+## Phase 8: Dockerization
+
+### Step 49: Add Dockerfile
+
+Added a Dockerfile for packaging the FastAPI inference service.
+
+Build:
+
+```bash
+docker build -t mlops-logistic-regression-api .
+```
+
+Run:
+
+```bash
+docker run --rm -p 8000:8000 mlops-logistic-regression-api
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Dockerfile:
+
+```dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/src
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+COPY configs ./configs
+COPY src ./src
+COPY mlruns ./mlruns
+
+EXPOSE 8000
+
+CMD ["python", "src/mlops_lr/serve.py"]
+```
