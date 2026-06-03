@@ -2953,3 +2953,39 @@ Add Prometheus data source:
 ```text
 http://prometheus:9090
 ```
+
+### Step 67: Provision Grafana Data Source
+
+Added Grafana provisioning so Prometheus is automatically configured as a data source.
+
+Provisioning file:
+
+```yaml
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+```
+
+Docker Compose volume:
+
+```yaml
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+```
+
+Run:
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+```text
+http://127.0.0.1:3000
+```
