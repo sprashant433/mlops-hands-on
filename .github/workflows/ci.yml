@@ -50,3 +50,5 @@ jobs:
             reports/metrics.json
             reports/confusion_matrix.png
             models/logistic_regression.pkl
+      - name: Build Docker image
+        run: docker build -t mlops-logistic-regression-api .

@@ -2590,3 +2590,16 @@ Workflow step:
 ```
 
 This makes model evaluation outputs available from CI runs.
+
+### Step 56: Add Docker Build Check to CI
+
+Updated CI to verify the API Docker image builds successfully.
+
+Workflow step:
+
+```yaml
+      - name: Build Docker image
+        run: docker build -t mlops-logistic-regression-api .
+```
+
+This catches Dockerfile and dependency issues before deployment.
