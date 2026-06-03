@@ -2217,3 +2217,47 @@ black src tests
 flake8 src tests
 PYTHONPATH=src pytest
 ```
+
+### Step 46: Add API Server Entry Point
+
+Created a server entry point in `src/mlops_lr/serve.py`.
+
+This uses serving configuration from `configs/config.yaml`.
+
+Implementation:
+
+```python
+import uvicorn
+
+from mlops_lr.config import load_config
+
+
+def serve() -> None:
+    config = load_config()
+
+    uvicorn.run(
+        "mlops_lr.api:app",
+        host=config.serving.host,
+        port=config.serving.port,
+        reload=False,
+    )
+
+
+if __name__ == "__main__":
+    serve()
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/serve.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000/docs
+```
