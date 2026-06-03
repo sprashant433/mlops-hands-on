@@ -2261,3 +2261,46 @@ Open:
 ```text
 http://127.0.0.1:8000/docs
 ```
+
+### Step 47: Test Real API Prediction
+
+Tested the FastAPI app with a real MLflow Registry `Production` model.
+
+Promote latest model to production:
+
+```bash
+PYTHONPATH=src python -c "from mlops_lr.config import load_config; from mlops_lr.mlflow_utils import promote_latest_model_to_stage; config = load_config(); print(promote_latest_model_to_stage(config.mlflow.registered_model_name, 'Production'))"
+```
+
+Start API:
+
+```bash
+PYTHONPATH=src python src/mlops_lr/serve.py
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Prediction:
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+```
+
+Readiness:
+
+```bash
+curl http://127.0.0.1:8000/ready
+```
