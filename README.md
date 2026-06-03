@@ -2702,3 +2702,28 @@ Workflow step:
 ```
 
 Smoke tests continue to use the immutable commit SHA tag.
+
+### Step 60: Add CD Artifact Export
+
+Updated CD to export the built Docker image as an artifact.
+
+This simulates producing a deployable release artifact before pushing to a real container registry.
+
+Workflow steps:
+
+```yaml
+      - name: Save Docker image artifact
+        run: docker save mlops-logistic-regression-api:${{ github.sha }} -o mlops-logistic-regression-api.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: mlops-logistic-regression-api.tar
+```
+
+The artifact can later be downloaded and loaded with:
+
+```bash
+docker load -i mlops-logistic-regression-api.tar
+```
