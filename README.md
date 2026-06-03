@@ -2682,3 +2682,23 @@ jobs:
           docker stop api-test
           docker rm api-test
 ```
+
+### Step 59: Add Docker Image Tagging Strategy
+
+Updated CD to build Docker images with two tags:
+
+- commit SHA tag for immutable release tracking
+- `latest` tag for convenient local/runtime usage
+
+Workflow step:
+
+```yaml
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t mlops-logistic-regression-api:${{ github.sha }} \
+            -t mlops-logistic-regression-api:latest \
+            .
+```
+
+Smoke tests continue to use the immutable commit SHA tag.

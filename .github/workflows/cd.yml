@@ -18,7 +18,11 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
-        run: docker build -t mlops-logistic-regression-api:${{ github.sha }} .
+        run: |
+          docker build \
+            -t mlops-logistic-regression-api:${{ github.sha }} \
+            -t mlops-logistic-regression-api:latest \
+            .
 
       - name: Smoke test Docker image
         run: |
