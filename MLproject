@@ -1,0 +1,9 @@
+name: mlops-logistic-regression
+
+conda_env: conda.yaml
+
+entry_points:
+  main:
+    parameters:
+      mode: {type: str, default: pipeline}
+    command: "PYTHONPATH=src python src/mlops_lr/project_entry.py --mode {mode}"

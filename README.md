@@ -1878,3 +1878,117 @@ Check:
 ```text
 Models → LoanApprovalModel → alias: production
 ```
+
+### Step 38: Tag Model Registry Milestone
+
+Merged the MLflow Model Registry work into `main` and tagged the Phase 5 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: mlflow model registry into main"
+git tag v0.5-model-registry
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=30
+git tag
+```
+
+Created tag:
+
+```text
+v0.5-model-registry
+```
+
+## Phase 6: MLflow Projects
+
+### Step 39: Add MLflow Project Files
+
+Added MLflow Project support for reproducible execution.
+
+Files added:
+
+- `MLproject`
+- `conda.yaml`
+- `src/mlops_lr/project_entry.py`
+
+The project supports two modes:
+
+```text
+pipeline
+tuning
+```
+
+`MLproject`:
+
+```yaml
+name: mlops-logistic-regression
+
+conda_env: conda.yaml
+
+entry_points:
+  main:
+    parameters:
+      mode: {type: str, default: pipeline}
+    command: "PYTHONPATH=src python src/mlops_lr/project_entry.py --mode {mode}"
+```
+
+Project entry point:
+
+```python
+import argparse
+
+from mlops_lr.pipeline import run_pipeline
+from mlops_lr.tuning_pipeline import run_tuning_pipeline
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--mode",
+        choices=["pipeline", "tuning"],
+        default="pipeline",
+    )
+    args = parser.parse_args()
+
+    if args.mode == "pipeline":
+        run_pipeline()
+    elif args.mode == "tuning":
+        run_tuning_pipeline()
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Run:
+
+```bash
+mlflow run . -P mode=pipeline --experiment-name loan-approval-logistic-regression
+mlflow run . -P mode=tuning --experiment-name loan-approval-logistic-regression
+```
+
+### Step 40: Run MLflow Project with Local Environment
+
+Added local execution commands for MLflow Projects using the existing virtual environment.
+
+This avoids creating a separate Conda environment during local development.
+
+Run pipeline mode:
+
+```bash
+.venv/bin/mlflow run . -P mode=pipeline --experiment-name loan-approval-logistic-regression --env-manager=local
+```
+
+Run tuning mode:
+
+```bash
+.venv/bin/mlflow run . -P mode=tuning --experiment-name loan-approval-logistic-regression --env-manager=local
+```
+
+Use this for faster local iteration. Keep `conda.yaml` for reproducible environment definitions.
