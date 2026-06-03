@@ -50,3 +50,10 @@ def test_predict(monkeypatch):
         "loan_approved": 1,
         "probability": 0.82,
     }
+
+
+def test_metrics():
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "http_requests_total" in response.text or "http_request" in response.text

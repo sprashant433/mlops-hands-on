@@ -2823,3 +2823,43 @@ pip install -r requirements.txt
 ```
 
 This dependency will expose application metrics through a `/metrics` endpoint.
+
+### Step 64: Expose `/metrics` Endpoint
+
+Instrumented the FastAPI app with Prometheus metrics.
+
+This adds:
+
+```text
+/metrics
+```
+
+Implementation:
+
+```python
+from prometheus_fastapi_instrumentator import Instrumentator
+
+model_service = ModelService()
+
+Instrumentator().instrument(app).expose(app)
+```
+
+Test:
+
+```python
+def test_metrics():
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "http_requests_total" in response.text or "http_request" in response.text
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/serve.py
+curl http://127.0.0.1:8000/metrics
+```
