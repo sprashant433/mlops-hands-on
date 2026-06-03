@@ -2029,6 +2029,7 @@ Dependencies:
 
 - `fastapi`
 - `uvicorn`
+- `httpx`
 
 Configuration:
 
@@ -2152,6 +2153,61 @@ class ModelService:
                 probability = float(sklearn_model.predict_proba(input_data)[0][1])
 
         return prediction, probability
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 45: Create FastAPI App
+
+Created the FastAPI inference app.
+
+Endpoints:
+
+```text
+/health
+/ready
+/model-info
+/predict
+```
+
+Run API:
+
+```bash
+PYTHONPATH=src uvicorn mlops_lr.api:app --host 0.0.0.0 --port 8000
+```
+
+Open Swagger docs:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+Example prediction request:
+
+```json
+{
+  "age": 35,
+  "income": 75000,
+  "loan_amount": 25000,
+  "credit_score": 700,
+  "employment_years": 5,
+  "debt_to_income": 0.3
+}
+```
+
+Example response:
+
+```json
+{
+  "loan_approved": 1,
+  "probability": 0.82
+}
 ```
 
 Run:

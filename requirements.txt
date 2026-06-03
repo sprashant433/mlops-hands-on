@@ -12,3 +12,4 @@ matplotlib
 hyperopt
 fastapi
 uvicorn
+httpx
