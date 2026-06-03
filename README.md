@@ -3088,3 +3088,29 @@ Check:
 ```text
 Dashboards → MLOps → MLOps API Monitoring
 ```
+
+### Step 70: Tag Monitoring Milestone
+
+Merged the monitoring work into `main` and tagged the Phase 11 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: monitoring into main"
+git tag v1.0-monitoring
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=60
+git tag
+```
+
+Created tag:
+
+```text
+v1.0-monitoring
+```
