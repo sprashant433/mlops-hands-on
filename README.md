@@ -2489,3 +2489,58 @@ Created tag:
 ```text
 v0.7-docker
 ```
+
+## Phase 9: CI Pipeline
+
+### Step 53: Add GitHub Actions CI Workflow
+
+Added a GitHub Actions CI workflow.
+
+Triggers:
+
+- pull request
+- manual workflow dispatch
+
+Checks:
+
+- install dependencies
+- Black formatting check
+- Flake8 linting
+- Pytest test suite
+
+Workflow:
+
+```yaml
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Black check
+        run: black --check src tests
+
+      - name: Run Flake8
+        run: flake8 src tests
+
+      - name: Run Pytest
+        run: PYTHONPATH=src pytest
+```
