@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Counter, Histogram
+from mlops_lr.tracing import configure_tracing
 
 from mlops_lr.config import load_config
 from mlops_lr.model_service import ModelService
@@ -14,7 +15,7 @@ app = FastAPI(
 
 model_service = ModelService()
 Instrumentator().instrument(app).expose(app)
-
+configure_tracing(app)
 PREDICTION_COUNT = Counter(
     "prediction_requests_total",
     "Total number of prediction requests",
