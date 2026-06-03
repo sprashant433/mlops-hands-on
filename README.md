@@ -2565,3 +2565,28 @@ Additional CI steps:
 ```
 
 This ensures CI verifies both code quality and end-to-end ML pipeline execution.
+
+### Step 55: Upload CI Artifacts
+
+Updated CI to upload ML pipeline artifacts.
+
+Uploaded artifacts:
+
+- `reports/metrics.json`
+- `reports/confusion_matrix.png`
+- `models/logistic_regression.pkl`
+
+Workflow step:
+
+```yaml
+      - name: Upload pipeline artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-artifacts
+          path: |
+            reports/metrics.json
+            reports/confusion_matrix.png
+            models/logistic_regression.pkl
+```
+
+This makes model evaluation outputs available from CI runs.

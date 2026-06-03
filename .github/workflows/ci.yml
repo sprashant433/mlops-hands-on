@@ -41,3 +41,12 @@ jobs:
           test -f models/logistic_regression.pkl
           test -f reports/metrics.json
           test -f reports/confusion_matrix.png
+
+      - name: Upload pipeline artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-artifacts
+          path: |
+            reports/metrics.json
+            reports/confusion_matrix.png
+            models/logistic_regression.pkl
