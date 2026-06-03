@@ -2463,3 +2463,29 @@ Stop:
 ```bash
 docker compose down
 ```
+
+### Step 52: Tag Docker Milestone
+
+Merged the Dockerization work into `main` and tagged the Phase 8 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: dockerization into main"
+git tag v0.7-docker
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=45
+git tag
+```
+
+Created tag:
+
+```text
+v0.7-docker
+```
