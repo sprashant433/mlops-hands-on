@@ -2382,3 +2382,43 @@ EXPOSE 8000
 
 CMD ["python", "src/mlops_lr/serve.py"]
 ```
+
+### Step 50: Add Docker Ignore File
+
+Added `.dockerignore` to keep Docker build context smaller.
+
+Important:
+
+`mlruns` is intentionally not ignored yet because the API container currently loads the registered model from the local MLflow registry copied into the image.
+
+`.dockerignore`:
+
+```dockerignore
+.git
+.github
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ipynb_checkpoints
+notebooks
+data
+reports
+models
+.DS_Store
+README.md
+```
+
+Build:
+
+```bash
+docker build -t mlops-logistic-regression-api .
+```
+
+Run:
+
+```bash
+docker run --rm -p 8000:8000 mlops-logistic-regression-api
+```
