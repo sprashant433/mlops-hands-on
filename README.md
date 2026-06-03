@@ -2463,3 +2463,143 @@ Stop:
 ```bash
 docker compose down
 ```
+
+### Step 52: Tag Docker Milestone
+
+Merged the Dockerization work into `main` and tagged the Phase 8 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: dockerization into main"
+git tag v0.7-docker
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=45
+git tag
+```
+
+Created tag:
+
+```text
+v0.7-docker
+```
+
+## Phase 9: CI Pipeline
+
+### Step 53: Add GitHub Actions CI Workflow
+
+Added a GitHub Actions CI workflow.
+
+Triggers:
+
+- pull request
+- manual workflow dispatch
+
+Checks:
+
+- install dependencies
+- Black formatting check
+- Flake8 linting
+- Pytest test suite
+
+Workflow:
+
+```yaml
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Black check
+        run: black --check src tests
+
+      - name: Run Flake8
+        run: flake8 src tests
+
+      - name: Run Pytest
+        run: PYTHONPATH=src pytest
+```
+
+### Step 54: Add CI Model Pipeline Check
+
+Extended CI to run the ML pipeline and verify generated outputs.
+
+Additional CI steps:
+
+```yaml
+      - name: Run ML pipeline
+        run: PYTHONPATH=src python src/mlops_lr/pipeline.py
+
+      - name: Verify pipeline outputs
+        run: |
+          test -f data/raw.csv
+          test -f data/processed.csv
+          test -f models/logistic_regression.pkl
+          test -f reports/metrics.json
+          test -f reports/confusion_matrix.png
+```
+
+This ensures CI verifies both code quality and end-to-end ML pipeline execution.
+
+### Step 55: Upload CI Artifacts
+
+Updated CI to upload ML pipeline artifacts.
+
+Uploaded artifacts:
+
+- `reports/metrics.json`
+- `reports/confusion_matrix.png`
+- `models/logistic_regression.pkl`
+
+Workflow step:
+
+```yaml
+      - name: Upload pipeline artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-artifacts
+          path: |
+            reports/metrics.json
+            reports/confusion_matrix.png
+            models/logistic_regression.pkl
+```
+
+This makes model evaluation outputs available from CI runs.
+
+### Step 56: Add Docker Build Check to CI
+
+Updated CI to verify the API Docker image builds successfully.
+
+Workflow step:
+
+```yaml
+      - name: Build Docker image
+        run: docker build -t mlops-logistic-regression-api .
+```
+
+This catches Dockerfile and dependency issues before deployment.
