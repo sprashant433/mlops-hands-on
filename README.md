@@ -2603,3 +2603,29 @@ Workflow step:
 ```
 
 This catches Dockerfile and dependency issues before deployment.
+
+### Step 57: Tag CI Milestone
+
+Merged the CI pipeline work into `main` and tagged the Phase 9 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: ci pipeline into main"
+git tag v0.8-ci
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=50
+git tag
+```
+
+Created tag:
+
+```text
+v0.8-ci
+```
