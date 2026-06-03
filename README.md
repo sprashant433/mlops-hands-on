@@ -2422,3 +2422,44 @@ Run:
 ```bash
 docker run --rm -p 8000:8000 mlops-logistic-regression-api
 ```
+
+### Step 51: Add Docker Compose
+
+Added Docker Compose for running the API service.
+
+`docker-compose.yml`:
+
+```yaml
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mlops-logistic-regression-api
+    container_name: mlops-logistic-regression-api
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app/src
+    volumes:
+      - ./mlruns:/app/mlruns
+      - ./configs:/app/configs
+```
+
+Run:
+
+```bash
+docker compose up --build
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Stop:
+
+```bash
+docker compose down
+```
