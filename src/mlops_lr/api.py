@@ -7,6 +7,14 @@ from opentelemetry import trace
 from mlops_lr.config import load_config
 from mlops_lr.model_service import ModelService
 from mlops_lr.schemas import PredictionRequest, PredictionResponse
+import logging
+
+from mlops_lr.json_logging import configure_json_logging
+
+configure_json_logging()
+logger = logging.getLogger(__name__)
+
+tracer = trace.get_tracer(__name__)
 
 
 def get_current_trace_context() -> dict[str, str]:
@@ -72,10 +80,39 @@ def predict(request: PredictionRequest) -> PredictionResponse:
     PREDICTION_COUNT.inc()
 
     try:
-        prediction, probability = model_service.predict(request)
-        PREDICTION_PROBABILITY.observe(probability)
+        with tracer.start_as_current_span("model_prediction") as span:
+            config = load_config()
+            span.set_attribute("model.name", config.mlflow.registered_model_name)
+            span.set_attribute("model.stage", config.serving.model_stage)
+            span.set_attribute("request.credit_score", request.credit_score)
+            span.set_attribute("request.debt_to_income", request.debt_to_income)
+
+            prediction, probability = model_service.predict(request)
+
+            span.set_attribute("prediction.loan_approved", prediction)
+            span.set_attribute("prediction.probability", probability)
+
+            PREDICTION_PROBABILITY.observe(probability)
+            logger.info(
+                "prediction_completed",
+                extra={
+                    "loan_approved": prediction,
+                    "probability": probability,
+                    "credit_score": request.credit_score,
+                    "debt_to_income": request.debt_to_income,
+                    **get_current_trace_context(),
+                },
+            )
     except Exception as error:
         PREDICTION_ERRORS.inc()
+        logger.exception(
+            "prediction_failed",
+            extra={
+                "credit_score": request.credit_score,
+                "debt_to_income": request.debt_to_income,
+                **get_current_trace_context(),
+            },
+        )
         raise HTTPException(status_code=500, detail=str(error)) from error
 
     return PredictionResponse(

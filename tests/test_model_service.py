@@ -29,3 +29,38 @@ def test_model_service_predict(monkeypatch):
 
     assert prediction == 1
     assert probability == 1.0
+
+
+def test_resolve_local_model_path(monkeypatch, tmp_path):
+    class FakeConfig:
+        class MLflow:
+            registered_model_name = "LoanApprovalModel"
+            tracking_uri = f"file:{tmp_path}"
+
+        class Serving:
+            model_stage = "Production"
+
+        mlflow = MLflow()
+        serving = Serving()
+
+    class FakeVersion:
+        version = "1"
+        current_stage = "Production"
+        source = "models:/m-test"
+
+    class FakeClient:
+        def search_model_versions(self, query):
+            return [FakeVersion()]
+
+    artifact_path = tmp_path / "1" / "models" / "m-test" / "artifacts"
+    artifact_path.mkdir(parents=True)
+
+    service = ModelService()
+    service.config = FakeConfig()
+
+    monkeypatch.setattr(
+        "mlops_lr.model_service.get_mlflow_client",
+        lambda: FakeClient(),
+    )
+
+    assert service._resolve_local_model_path() == str(artifact_path)

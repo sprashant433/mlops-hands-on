@@ -1,8 +1,10 @@
+from pathlib import Path
+
 import mlflow.pyfunc
 import pandas as pd
 
 from mlops_lr.config import load_config
-from mlops_lr.mlflow_utils import configure_mlflow
+from mlops_lr.mlflow_utils import configure_mlflow, get_mlflow_client
 from mlops_lr.schemas import PredictionRequest
 
 
@@ -17,7 +19,45 @@ class ModelService:
             f"models:/{self.config.mlflow.registered_model_name}"
             f"/{self.config.serving.model_stage}"
         )
-        self.model = mlflow.pyfunc.load_model(model_uri)
+
+        try:
+            self.model = mlflow.pyfunc.load_model(model_uri)
+        except OSError:
+            self.model = mlflow.pyfunc.load_model(self._resolve_local_model_path())
+
+    def _resolve_local_model_path(self) -> str:
+        client = get_mlflow_client()
+        model_versions = client.search_model_versions(
+            f"name='{self.config.mlflow.registered_model_name}'"
+        )
+
+        matching_versions = [
+            version
+            for version in model_versions
+            if version.current_stage == self.config.serving.model_stage
+        ]
+
+        if not matching_versions:
+            raise ValueError(
+                "No model version found for "
+                f"{self.config.mlflow.registered_model_name} "
+                f"at stage {self.config.serving.model_stage}"
+            )
+
+        latest_version = max(
+            matching_versions, key=lambda version: int(version.version)
+        )
+        model_id = latest_version.source.replace("models:/", "")
+        tracking_path = Path(
+            self.config.mlflow.tracking_uri.replace("file:", "", 1)
+        ).resolve()
+
+        matches = list(tracking_path.glob(f"*/models/{model_id}/artifacts"))
+
+        if not matches:
+            raise FileNotFoundError(f"Local model artifacts not found for: {model_id}")
+
+        return str(matches[0])
 
     def is_ready(self) -> bool:
         return self.model is not None

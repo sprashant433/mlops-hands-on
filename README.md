@@ -2100,6 +2100,7 @@ This service:
 
 - configures MLflow
 - loads the configured model from MLflow Registry
+- falls back to local `mlruns` artifacts when Docker sees host-specific MLflow paths
 - checks readiness
 - performs prediction
 - returns prediction and probability
@@ -2113,11 +2114,13 @@ models:/LoanApprovalModel/Production
 Implementation:
 
 ```python
+from pathlib import Path
+
 import mlflow.pyfunc
 import pandas as pd
 
 from mlops_lr.config import load_config
-from mlops_lr.mlflow_utils import configure_mlflow
+from mlops_lr.mlflow_utils import configure_mlflow, get_mlflow_client
 from mlops_lr.schemas import PredictionRequest
 
 
@@ -2132,7 +2135,43 @@ class ModelService:
             f"models:/{self.config.mlflow.registered_model_name}"
             f"/{self.config.serving.model_stage}"
         )
-        self.model = mlflow.pyfunc.load_model(model_uri)
+
+        try:
+            self.model = mlflow.pyfunc.load_model(model_uri)
+        except OSError:
+            self.model = mlflow.pyfunc.load_model(self._resolve_local_model_path())
+
+    def _resolve_local_model_path(self) -> str:
+        client = get_mlflow_client()
+        model_versions = client.search_model_versions(
+            f"name='{self.config.mlflow.registered_model_name}'"
+        )
+
+        matching_versions = [
+            version
+            for version in model_versions
+            if version.current_stage == self.config.serving.model_stage
+        ]
+
+        if not matching_versions:
+            raise ValueError(
+                "No model version found for "
+                f"{self.config.mlflow.registered_model_name} "
+                f"at stage {self.config.serving.model_stage}"
+            )
+
+        latest_version = max(matching_versions, key=lambda version: int(version.version))
+        model_id = latest_version.source.replace("models:/", "")
+        tracking_path = Path(
+            self.config.mlflow.tracking_uri.replace("file:", "", 1)
+        ).resolve()
+
+        matches = list(tracking_path.glob(f"*/models/{model_id}/artifacts"))
+
+        if not matches:
+            raise FileNotFoundError(f"Local model artifacts not found for: {model_id}")
+
+        return str(matches[0])
 
     def is_ready(self) -> bool:
         return self.model is not None
@@ -2162,6 +2201,14 @@ black src tests
 flake8 src tests
 PYTHONPATH=src pytest
 ```
+
+Docker note:
+
+MLflow model versions can store absolute artifact paths from the machine where the
+model was registered. In Docker, the registry metadata may still point to the Mac
+path, while the mounted artifacts live under `/app/mlruns`. The local fallback
+uses the model ID from the registry version and resolves the matching artifact
+folder inside the container's configured tracking directory.
 
 ### Step 45: Create FastAPI App
 
@@ -3284,3 +3331,253 @@ Example response:
 ```
 
 Use the `trace_id` to search traces in Jaeger.
+
+### Step 75: Add Manual Spans Around Prediction
+
+Added a custom OpenTelemetry span around model prediction.
+
+Span name:
+
+```text
+model_prediction
+```
+
+Span attributes:
+
+```text
+model.name
+model.stage
+request.credit_score
+request.debt_to_income
+prediction.loan_approved
+prediction.probability
+```
+
+Implementation:
+
+```python
+tracer = trace.get_tracer(__name__)
+
+with tracer.start_as_current_span("model_prediction") as span:
+    config = load_config()
+
+    span.set_attribute("model.name", config.mlflow.registered_model_name)
+    span.set_attribute("model.stage", config.serving.model_stage)
+    span.set_attribute("request.credit_score", request.credit_score)
+    span.set_attribute("request.debt_to_income", request.debt_to_income)
+
+    prediction, probability = model_service.predict(request)
+
+    span.set_attribute("prediction.loan_approved", prediction)
+    span.set_attribute("prediction.probability", probability)
+```
+
+Check in Jaeger:
+
+```text
+Service → mlops-logistic-regression-api → operation → model_prediction
+```
+
+### Step 76: Add Structured JSON Logging
+
+Phase 13 starts with application logs.
+
+Goal:
+
+```text
+Human-readable message + machine-readable JSON fields
+```
+
+Create:
+
+```text
+src/mlops_lr/json_logging.py
+```
+
+Implementation:
+
+```python
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Any
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        log_record: dict[str, Any] = {
+            "timestamp": datetime.fromtimestamp(
+                record.created,
+                tz=timezone.utc,
+            ).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+
+        if record.exc_info:
+            log_record["exception"] = self.formatException(record.exc_info)
+
+        extra_fields = {
+            key: value
+            for key, value in record.__dict__.items()
+            if key
+            not in {
+                "name",
+                "msg",
+                "args",
+                "levelname",
+                "levelno",
+                "pathname",
+                "filename",
+                "module",
+                "exc_info",
+                "exc_text",
+                "stack_info",
+                "lineno",
+                "funcName",
+                "created",
+                "msecs",
+                "relativeCreated",
+                "thread",
+                "threadName",
+                "processName",
+                "process",
+                "taskName",
+            }
+        }
+
+        log_record.update(extra_fields)
+
+        return json.dumps(log_record, default=str)
+
+
+def configure_json_logging(level: int = logging.INFO) -> None:
+    handler = logging.StreamHandler()
+    handler.setFormatter(JsonFormatter())
+
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.addHandler(handler)
+    root_logger.setLevel(level)
+```
+
+Update `src/mlops_lr/api.py`:
+
+```python
+import logging
+
+from mlops_lr.json_logging import configure_json_logging
+
+configure_json_logging()
+logger = logging.getLogger(__name__)
+```
+
+Inside `/predict`, log success:
+
+```python
+logger.info(
+    "prediction_completed",
+    extra={
+        "loan_approved": prediction,
+        "probability": probability,
+        "credit_score": request.credit_score,
+        "debt_to_income": request.debt_to_income,
+        **get_current_trace_context(),
+    },
+)
+```
+
+Inside the exception block, log failure:
+
+```python
+logger.exception(
+    "prediction_failed",
+    extra={
+        "credit_score": request.credit_score,
+        "debt_to_income": request.debt_to_income,
+        **get_current_trace_context(),
+    },
+)
+```
+
+Add test:
+
+```text
+tests/test_json_logging.py
+```
+
+Implementation:
+
+```python
+import json
+import logging
+
+from mlops_lr.json_logging import JsonFormatter
+
+
+def test_json_formatter_outputs_valid_json():
+    formatter = JsonFormatter()
+    record = logging.LogRecord(
+        name="mlops_lr.test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=10,
+        msg="prediction_completed",
+        args=(),
+        exc_info=None,
+    )
+    record.trace_id = "abc123"
+    record.loan_approved = 1
+
+    output = formatter.format(record)
+    payload = json.loads(output)
+
+    assert payload["level"] == "INFO"
+    assert payload["logger"] == "mlops_lr.test"
+    assert payload["message"] == "prediction_completed"
+    assert payload["trace_id"] == "abc123"
+    assert payload["loan_approved"] == 1
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+Test JSON logs from Docker:
+
+```bash
+docker compose up -d --build api
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+docker logs mlops-logistic-regression-api --tail 20
+```
+
+Expected log shape:
+
+```json
+{
+  "timestamp": "...",
+  "level": "INFO",
+  "logger": "mlops_lr.api",
+  "message": "prediction_completed",
+  "loan_approved": 1,
+  "probability": 0.91,
+  "credit_score": 700,
+  "debt_to_income": 0.3,
+  "trace_id": "...",
+  "span_id": "..."
+}
+```
