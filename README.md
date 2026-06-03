@@ -3041,3 +3041,50 @@ Check:
 ```bash
 curl http://127.0.0.1:8000/metrics | grep prediction
 ```
+
+### Step 69: Add Grafana Dashboard Provisioning
+
+Added a provisioned Grafana dashboard for API monitoring.
+
+Dashboard panels:
+
+- Prediction Requests
+- Prediction Errors
+- Request Latency
+- Prediction Probability
+
+Provisioning file:
+
+```yaml
+apiVersion: 1
+
+providers:
+  - name: MLOps Dashboards
+    orgId: 1
+    folder: MLOps
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards
+```
+
+Grafana dashboard volume:
+
+```yaml
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+```
+
+Open:
+
+```text
+http://127.0.0.1:3000
+```
+
+Check:
+
+```text
+Dashboards → MLOps → MLOps API Monitoring
+```
