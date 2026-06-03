@@ -2376,12 +2376,16 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 COPY configs ./configs
 COPY src ./src
-COPY mlruns ./mlruns
+RUN mkdir -p ./mlruns
 
 EXPOSE 8000
 
 CMD ["python", "src/mlops_lr/serve.py"]
 ```
+
+Note:
+
+The Docker image creates an empty `/app/mlruns` directory instead of copying local MLflow artifacts. Local Compose mounts `./mlruns:/app/mlruns`; production deployments should use a mounted registry volume or external MLflow tracking server.
 
 ### Step 50: Add Docker Ignore File
 
@@ -2389,7 +2393,7 @@ Added `.dockerignore` to keep Docker build context smaller.
 
 Important:
 
-`mlruns` is intentionally not ignored yet because the API container currently loads the registered model from the local MLflow registry copied into the image.
+`mlruns` is ignored by `.dockerignore` because the Dockerfile no longer copies local MLflow artifacts into the image. Local Compose can still mount `./mlruns:/app/mlruns` at runtime because `.dockerignore` only affects build context, not runtime volumes.
 
 `.dockerignore`:
 
@@ -2407,6 +2411,7 @@ notebooks
 data
 reports
 models
+mlruns
 .DS_Store
 README.md
 ```

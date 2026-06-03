@@ -11,5 +11,6 @@ notebooks
 data
 reports
 models
+mlruns
 .DS_Store
 README.md
