@@ -2603,3 +2603,172 @@ Workflow step:
 ```
 
 This catches Dockerfile and dependency issues before deployment.
+
+### Step 57: Tag CI Milestone
+
+Merged the CI pipeline work into `main` and tagged the Phase 9 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: ci pipeline into main"
+git tag v0.8-ci
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=50
+git tag
+```
+
+Created tag:
+
+```text
+v0.8-ci
+```
+
+## Phase 10: CD Pipeline
+
+### Step 58: Add GitHub Actions CD Workflow
+
+Added a GitHub Actions CD workflow.
+
+Triggers:
+
+- push to `main`
+- manual workflow dispatch
+
+CD steps:
+
+- checkout repository
+- set up Docker Buildx
+- build Docker image tagged with commit SHA
+- run container smoke test
+- verify `/health`
+
+Workflow:
+
+```yaml
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: docker build -t mlops-logistic-regression-api:${{ github.sha }} .
+
+      - name: Smoke test Docker image
+        run: |
+          docker run -d --name api-test -p 8000:8000 mlops-logistic-regression-api:${{ github.sha }}
+          sleep 10
+          curl --fail http://127.0.0.1:8000/health
+          docker stop api-test
+          docker rm api-test
+```
+
+### Step 59: Add Docker Image Tagging Strategy
+
+Updated CD to build Docker images with two tags:
+
+- commit SHA tag for immutable release tracking
+- `latest` tag for convenient local/runtime usage
+
+Workflow step:
+
+```yaml
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t mlops-logistic-regression-api:${{ github.sha }} \
+            -t mlops-logistic-regression-api:latest \
+            .
+```
+
+Smoke tests continue to use the immutable commit SHA tag.
+
+### Step 60: Add CD Artifact Export
+
+Updated CD to export the built Docker image as an artifact.
+
+This simulates producing a deployable release artifact before pushing to a real container registry.
+
+Workflow steps:
+
+```yaml
+      - name: Save Docker image artifact
+        run: docker save mlops-logistic-regression-api:${{ github.sha }} -o mlops-logistic-regression-api.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: mlops-logistic-regression-api.tar
+```
+
+The artifact can later be downloaded and loaded with:
+
+```bash
+docker load -i mlops-logistic-regression-api.tar
+```
+
+### Step 61: Add Deployment Smoke Test Script
+
+Added a reusable Docker smoke test script.
+
+Script:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE_NAME="${1:-mlops-logistic-regression-api:latest}"
+CONTAINER_NAME="mlops-api-smoke-test"
+
+docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+
+docker run -d \
+  --name "${CONTAINER_NAME}" \
+  -p 8000:8000 \
+  "${IMAGE_NAME}"
+
+cleanup() {
+  docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+}
+
+trap cleanup EXIT
+
+sleep 10
+
+curl --fail http://127.0.0.1:8000/health
+```
+
+Run locally:
+
+```bash
+docker build -t mlops-logistic-regression-api:latest .
+./scripts/smoke_test_api.sh mlops-logistic-regression-api:latest
+```
+
+CD now reuses the same script:
+
+```yaml
+      - name: Smoke test Docker image
+        run: ./scripts/smoke_test_api.sh mlops-logistic-regression-api:${{ github.sha }}
+```
