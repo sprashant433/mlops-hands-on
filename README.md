@@ -3252,3 +3252,35 @@ Search service:
 ```text
 mlops-logistic-regression-api
 ```
+
+### Step 74: Add Trace IDs to API Responses
+
+Added trace context to API responses for easier correlation with Jaeger.
+
+Helper:
+
+```python
+from opentelemetry import trace
+
+
+def get_current_trace_context() -> dict[str, str]:
+    span = trace.get_current_span()
+    span_context = span.get_span_context()
+
+    return {
+        "trace_id": format(span_context.trace_id, "032x"),
+        "span_id": format(span_context.span_id, "016x"),
+    }
+```
+
+Example response:
+
+```json
+{
+  "status": "ok",
+  "trace_id": "...",
+  "span_id": "..."
+}
+```
+
+Use the `trace_id` to search traces in Jaeger.

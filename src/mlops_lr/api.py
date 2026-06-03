@@ -2,10 +2,21 @@ from fastapi import FastAPI, HTTPException
 from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Counter, Histogram
 from mlops_lr.tracing import configure_tracing
+from opentelemetry import trace
 
 from mlops_lr.config import load_config
 from mlops_lr.model_service import ModelService
 from mlops_lr.schemas import PredictionRequest, PredictionResponse
+
+
+def get_current_trace_context() -> dict[str, str]:
+    span = trace.get_current_span()
+    span_context = span.get_span_context()
+
+    return {
+        "trace_id": format(span_context.trace_id, "032x"),
+        "span_id": format(span_context.span_id, "016x"),
+    }
 
 
 app = FastAPI(
@@ -34,7 +45,10 @@ PREDICTION_PROBABILITY = Histogram(
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        **get_current_trace_context(),
+    }
 
 
 @app.get("/ready")
@@ -49,6 +63,7 @@ def model_info() -> dict[str, str]:
     return {
         "model_name": config.mlflow.registered_model_name,
         "model_stage": config.serving.model_stage,
+        **get_current_trace_context(),
     }
 
 
