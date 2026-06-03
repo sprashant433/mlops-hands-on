@@ -2304,3 +2304,162 @@ Readiness:
 ```bash
 curl http://127.0.0.1:8000/ready
 ```
+
+### Step 48: Tag FastAPI Serving Milestone
+
+Merged the FastAPI serving work into `main` and tagged the Phase 7 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: fastapi serving into main"
+git tag v0.6-fastapi-serving
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=40
+git tag
+```
+
+Created tag:
+
+```text
+v0.6-fastapi-serving
+```
+
+## Phase 8: Dockerization
+
+### Step 49: Add Dockerfile
+
+Added a Dockerfile for packaging the FastAPI inference service.
+
+Build:
+
+```bash
+docker build -t mlops-logistic-regression-api .
+```
+
+Run:
+
+```bash
+docker run --rm -p 8000:8000 mlops-logistic-regression-api
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Dockerfile:
+
+```dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/src
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+COPY configs ./configs
+COPY src ./src
+COPY mlruns ./mlruns
+
+EXPOSE 8000
+
+CMD ["python", "src/mlops_lr/serve.py"]
+```
+
+### Step 50: Add Docker Ignore File
+
+Added `.dockerignore` to keep Docker build context smaller.
+
+Important:
+
+`mlruns` is intentionally not ignored yet because the API container currently loads the registered model from the local MLflow registry copied into the image.
+
+`.dockerignore`:
+
+```dockerignore
+.git
+.github
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ipynb_checkpoints
+notebooks
+data
+reports
+models
+.DS_Store
+README.md
+```
+
+Build:
+
+```bash
+docker build -t mlops-logistic-regression-api .
+```
+
+Run:
+
+```bash
+docker run --rm -p 8000:8000 mlops-logistic-regression-api
+```
+
+### Step 51: Add Docker Compose
+
+Added Docker Compose for running the API service.
+
+`docker-compose.yml`:
+
+```yaml
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mlops-logistic-regression-api
+    container_name: mlops-logistic-regression-api
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app/src
+    volumes:
+      - ./mlruns:/app/mlruns
+      - ./configs:/app/configs
+```
+
+Run:
+
+```bash
+docker compose up --build
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Stop:
+
+```bash
+docker compose down
+```

@@ -1,0 +1,14 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mlops-logistic-regression-api
+    container_name: mlops-logistic-regression-api
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app/src
+    volumes:
+      - ./mlruns:/app/mlruns
+      - ./configs:/app/configs
