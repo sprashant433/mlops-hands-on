@@ -35,12 +35,19 @@ class TuningConfig(BaseModel):
     max_evals: int
 
 
+class ServingConfig(BaseModel):
+    host: str
+    port: int
+    model_stage: str
+
+
 class AppConfig(BaseModel):
     project: ProjectConfig
     data: DataConfig
     model: ModelConfig
     mlflow: MLflowConfig
     tuning: TuningConfig
+    serving: ServingConfig
 
 
 def load_config(config_path: str = "configs/config.yaml") -> AppConfig:

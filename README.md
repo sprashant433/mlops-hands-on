@@ -2018,3 +2018,40 @@ Created tag:
 ```text
 v0.6-mlflow-projects
 ```
+
+## Phase 7: Build Inference Layer
+
+### Step 42: Add FastAPI Dependencies and Serving Config
+
+Added FastAPI serving dependencies and serving configuration.
+
+Dependencies:
+
+- `fastapi`
+- `uvicorn`
+
+Configuration:
+
+```yaml
+serving:
+  host: 0.0.0.0
+  port: 8000
+  model_stage: Production
+```
+
+Config model:
+
+```python
+class ServingConfig(BaseModel):
+    host: str
+    port: int
+    model_stage: str
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
