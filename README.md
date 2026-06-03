@@ -1992,3 +1992,29 @@ Run tuning mode:
 ```
 
 Use this for faster local iteration. Keep `conda.yaml` for reproducible environment definitions.
+
+### Step 41: Tag MLflow Projects Milestone
+
+Merged the MLflow Projects work into `main` and tagged the Phase 6 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: mlflow projects into main"
+git tag v0.6-mlflow-projects
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=35
+git tag
+```
+
+Created tag:
+
+```text
+v0.6-mlflow-projects
+```
