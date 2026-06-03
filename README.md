@@ -2912,3 +2912,44 @@ Check:
 ```text
 Status → Targets → mlops-api
 ```
+
+### Step 66: Add Grafana to Docker Compose
+
+Added Grafana for metrics visualization.
+
+Docker Compose Grafana service:
+
+```yaml
+  grafana:
+    image: grafana/grafana:latest
+    container_name: mlops-grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+```
+
+Run:
+
+```bash
+docker compose up --build
+```
+
+Open Grafana:
+
+```text
+http://127.0.0.1:3000
+```
+
+Default login:
+
+```text
+username: admin
+password: admin
+```
+
+Add Prometheus data source:
+
+```text
+http://prometheus:9090
+```
