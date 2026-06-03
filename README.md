@@ -3183,3 +3183,72 @@ FastAPI integration:
 ```python
 configure_tracing(app)
 ```
+
+### Step 73: Add OpenTelemetry Collector Config
+
+Added OpenTelemetry Collector and Jaeger for distributed tracing.
+
+Collector config:
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger]
+```
+
+Docker Compose services:
+
+```yaml
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: mlops-otel-collector
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./monitoring/otel-collector-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: mlops-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"
+      - "14250:14250"
+```
+
+Open Jaeger:
+
+```text
+http://127.0.0.1:16686
+```
+
+Search service:
+
+```text
+mlops-logistic-regression-api
+```
