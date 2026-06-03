@@ -2989,3 +2989,55 @@ Open:
 ```text
 http://127.0.0.1:3000
 ```
+
+### Step 68: Add Custom Prediction Metrics
+
+Added ML-specific Prometheus metrics.
+
+Metrics:
+
+```text
+prediction_requests_total
+prediction_errors_total
+prediction_probability
+```
+
+Implementation:
+
+```python
+from prometheus_client import Counter, Histogram
+
+PREDICTION_COUNT = Counter(
+    "prediction_requests_total",
+    "Total number of prediction requests",
+)
+
+PREDICTION_ERRORS = Counter(
+    "prediction_errors_total",
+    "Total number of prediction errors",
+)
+
+PREDICTION_PROBABILITY = Histogram(
+    "prediction_probability",
+    "Predicted probability distribution",
+)
+```
+
+Prediction endpoint instrumentation:
+
+```python
+PREDICTION_COUNT.inc()
+
+try:
+    prediction, probability = model_service.predict(request)
+    PREDICTION_PROBABILITY.observe(probability)
+except Exception as error:
+    PREDICTION_ERRORS.inc()
+    raise HTTPException(status_code=500, detail=str(error)) from error
+```
+
+Check:
+
+```bash
+curl http://127.0.0.1:8000/metrics | grep prediction
+```

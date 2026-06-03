@@ -52,6 +52,15 @@ def test_predict(monkeypatch):
     }
 
 
+def test_prediction_metrics_exposed():
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "prediction_requests_total" in response.text
+    assert "prediction_errors_total" in response.text
+    assert "prediction_probability" in response.text
+
+
 def test_metrics():
     response = client.get("/metrics")
 

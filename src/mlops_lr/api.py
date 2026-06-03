@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Counter, Histogram
 
 from mlops_lr.config import load_config
 from mlops_lr.model_service import ModelService
@@ -13,6 +14,21 @@ app = FastAPI(
 
 model_service = ModelService()
 Instrumentator().instrument(app).expose(app)
+
+PREDICTION_COUNT = Counter(
+    "prediction_requests_total",
+    "Total number of prediction requests",
+)
+
+PREDICTION_ERRORS = Counter(
+    "prediction_errors_total",
+    "Total number of prediction errors",
+)
+
+PREDICTION_PROBABILITY = Histogram(
+    "prediction_probability",
+    "Predicted probability distribution",
+)
 
 
 @app.get("/health")
@@ -37,9 +53,13 @@ def model_info() -> dict[str, str]:
 
 @app.post("/predict", response_model=PredictionResponse)
 def predict(request: PredictionRequest) -> PredictionResponse:
+    PREDICTION_COUNT.inc()
+
     try:
         prediction, probability = model_service.predict(request)
+        PREDICTION_PROBABILITY.observe(probability)
     except Exception as error:
+        PREDICTION_ERRORS.inc()
         raise HTTPException(status_code=500, detail=str(error)) from error
 
     return PredictionResponse(
