@@ -2304,3 +2304,29 @@ Readiness:
 ```bash
 curl http://127.0.0.1:8000/ready
 ```
+
+### Step 48: Tag FastAPI Serving Milestone
+
+Merged the FastAPI serving work into `main` and tagged the Phase 7 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: fastapi serving into main"
+git tag v0.6-fastapi-serving
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=40
+git tag
+```
+
+Created tag:
+
+```text
+v0.6-fastapi-serving
+```
