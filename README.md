@@ -1972,3 +1972,23 @@ Run:
 mlflow run . -P mode=pipeline --experiment-name loan-approval-logistic-regression
 mlflow run . -P mode=tuning --experiment-name loan-approval-logistic-regression
 ```
+
+### Step 40: Run MLflow Project with Local Environment
+
+Added local execution commands for MLflow Projects using the existing virtual environment.
+
+This avoids creating a separate Conda environment during local development.
+
+Run pipeline mode:
+
+```bash
+.venv/bin/mlflow run . -P mode=pipeline --experiment-name loan-approval-logistic-regression --env-manager=local
+```
+
+Run tuning mode:
+
+```bash
+.venv/bin/mlflow run . -P mode=tuning --experiment-name loan-approval-logistic-regression --env-manager=local
+```
+
+Use this for faster local iteration. Keep `conda.yaml` for reproducible environment definitions.
