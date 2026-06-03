@@ -1,0 +1,21 @@
+name: mlops-logistic-regression
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.9
+  - pip
+  - pip:
+      - pandas
+      - numpy
+      - scikit-learn
+      - pytest
+      - pydantic
+      - pyyaml
+      - black
+      - flake8
+      - joblib
+      - mlflow
+      - matplotlib
+      - hyperopt

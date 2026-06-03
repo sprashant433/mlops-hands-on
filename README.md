@@ -1904,3 +1904,71 @@ Created tag:
 ```text
 v0.5-model-registry
 ```
+
+## Phase 6: MLflow Projects
+
+### Step 39: Add MLflow Project Files
+
+Added MLflow Project support for reproducible execution.
+
+Files added:
+
+- `MLproject`
+- `conda.yaml`
+- `src/mlops_lr/project_entry.py`
+
+The project supports two modes:
+
+```text
+pipeline
+tuning
+```
+
+`MLproject`:
+
+```yaml
+name: mlops-logistic-regression
+
+conda_env: conda.yaml
+
+entry_points:
+  main:
+    parameters:
+      mode: {type: str, default: pipeline}
+    command: "PYTHONPATH=src python src/mlops_lr/project_entry.py --mode {mode}"
+```
+
+Project entry point:
+
+```python
+import argparse
+
+from mlops_lr.pipeline import run_pipeline
+from mlops_lr.tuning_pipeline import run_tuning_pipeline
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--mode",
+        choices=["pipeline", "tuning"],
+        default="pipeline",
+    )
+    args = parser.parse_args()
+
+    if args.mode == "pipeline":
+        run_pipeline()
+    elif args.mode == "tuning":
+        run_tuning_pipeline()
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Run:
+
+```bash
+mlflow run . -P mode=pipeline --experiment-name loan-approval-logistic-regression
+mlflow run . -P mode=tuning --experiment-name loan-approval-logistic-regression
+```
