@@ -3581,3 +3581,119 @@ Expected log shape:
   "span_id": "..."
 }
 ```
+### Step 77: Add Loki and Promtail
+
+Added centralized log collection using Loki and Promtail.
+
+Log flow:
+
+```text
+FastAPI JSON logs
+    ↓
+Docker logs
+    ↓
+Promtail
+    ↓
+Loki
+    ↓
+Grafana
+```
+
+Promtail config:
+
+```yaml
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        target_label: "container"
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: "stream"
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label: "compose_service"
+```
+
+Docker Compose services:
+
+```yaml
+  loki:
+    image: grafana/loki:latest
+    container_name: mlops-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: mlops-promtail
+    volumes:
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+```
+
+Grafana Loki datasource:
+
+```yaml
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+```
+
+Run:
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+Generate logs:
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+```
+
+Open Grafana:
+
+```text
+http://127.0.0.1:3000
+```
+
+Explore logs:
+
+```text
+Explore → Loki
+```
+
+Query:
+
+```logql
+{compose_service="api"} |= "prediction_completed"
+```
