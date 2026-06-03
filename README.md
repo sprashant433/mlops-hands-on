@@ -3114,3 +3114,24 @@ Created tag:
 ```text
 v1.0-monitoring
 ```
+
+## Phase 12: OpenTelemetry
+
+### Step 71: Add OpenTelemetry Dependencies
+
+Added OpenTelemetry dependencies for distributed tracing.
+
+Dependencies:
+
+```text
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+opentelemetry-exporter-otlp
+```
+
+Install:
+
+```bash
+pip install -r requirements.txt
+```
