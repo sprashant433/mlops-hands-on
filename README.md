@@ -5925,3 +5925,56 @@ PYTHONPATH=src pytest
 PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
 ls reports
 ```
+
+### Step 95: Phase 15 Checkpoint
+
+Completed Phase 15: Data and Model Monitoring.
+
+Phase 15 added:
+
+```text
+prediction logging
+input statistics
+prediction statistics
+reference monitoring dataset
+Evidently data drift reports
+Evidently prediction drift reports
+drift monitoring pipeline
+drift monitoring runbook
+```
+
+Phase 15 flow:
+
+```text
+FastAPI predictions
+→ data/predictions.csv
+→ input statistics
+→ prediction statistics
+→ reference monitoring dataset
+→ Evidently drift reports
+→ drift monitoring pipeline
+```
+
+Checkpoint tag:
+
+```text
+v1.3-drift-monitoring
+```
+
+Run final validation:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+ls reports
+```
+
+Create checkpoint tag:
+
+```bash
+git status
+git tag v1.3-drift-monitoring
+git push origin v1.3-drift-monitoring
+```
