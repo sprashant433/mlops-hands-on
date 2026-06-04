@@ -6426,3 +6426,159 @@ Expected values:
 0 = OK
 1 = DRIFT
 ```
+
+### Step 99: Add Retraining Trigger From Drift Alert
+
+Added a file-based retraining trigger that reacts to drift alerts.
+
+The retraining trigger flow is:
+
+```text
+reports/drift_alert.json
+→ evaluate retraining condition
+→ reports/retraining_trigger.json
+→ retraining pipeline later
+```
+
+Implementation:
+
+```python
+import json
+from pathlib import Path
+
+
+def load_drift_alert(alert_path: str) -> dict:
+    path = Path(alert_path)
+
+    if not path.exists():
+        return {
+            "drift_detected": False,
+            "status": "missing",
+        }
+
+    return json.loads(path.read_text())
+
+
+def should_trigger_retraining(alert: dict) -> bool:
+    return alert.get("drift_detected") is True or alert.get("status") == "alert"
+
+
+def write_retraining_trigger(
+    should_retrain: bool,
+    output_path: str,
+) -> None:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    trigger = {
+        "should_retrain": should_retrain,
+        "status": "triggered" if should_retrain else "skipped",
+    }
+
+    path.write_text(json.dumps(trigger, indent=2))
+
+
+def evaluate_retraining_trigger(
+    alert_path: str,
+    output_path: str,
+) -> dict:
+    alert = load_drift_alert(alert_path)
+    should_retrain = should_trigger_retraining(alert)
+
+    write_retraining_trigger(
+        should_retrain=should_retrain,
+        output_path=output_path,
+    )
+
+    return {
+        "should_retrain": should_retrain,
+        "status": "triggered" if should_retrain else "skipped",
+    }
+```
+
+Tests:
+
+```python
+import json
+
+from mlops_lr.retraining_trigger import (
+    evaluate_retraining_trigger,
+    load_drift_alert,
+    should_trigger_retraining,
+    write_retraining_trigger,
+)
+
+
+def test_load_drift_alert_returns_missing_when_file_does_not_exist(tmp_path):
+    alert_path = tmp_path / "missing.json"
+
+    alert = load_drift_alert(str(alert_path))
+
+    assert alert["drift_detected"] is False
+    assert alert["status"] == "missing"
+
+
+def test_should_trigger_retraining_for_drift_detected():
+    alert = {
+        "drift_detected": True,
+        "status": "alert",
+    }
+
+    assert should_trigger_retraining(alert) is True
+
+
+def test_should_not_trigger_retraining_for_ok_alert():
+    alert = {
+        "drift_detected": False,
+        "status": "ok",
+    }
+
+    assert should_trigger_retraining(alert) is False
+
+
+def test_write_retraining_trigger(tmp_path):
+    output_path = tmp_path / "retraining_trigger.json"
+
+    write_retraining_trigger(
+        should_retrain=True,
+        output_path=str(output_path),
+    )
+
+    trigger = json.loads(output_path.read_text())
+
+    assert trigger["should_retrain"] is True
+    assert trigger["status"] == "triggered"
+
+
+def test_evaluate_retraining_trigger(tmp_path):
+    alert_path = tmp_path / "drift_alert.json"
+    output_path = tmp_path / "retraining_trigger.json"
+
+    alert_path.write_text(
+        json.dumps(
+            {
+                "drift_detected": True,
+                "status": "alert",
+            }
+        )
+    )
+
+    trigger = evaluate_retraining_trigger(
+        alert_path=str(alert_path),
+        output_path=str(output_path),
+    )
+
+    assert trigger["should_retrain"] is True
+    assert trigger["status"] == "triggered"
+    assert output_path.exists()
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.retraining_trigger import evaluate_retraining_trigger; evaluate_retraining_trigger('reports/drift_alert.json', 'reports/retraining_trigger.json')"
+cat reports/retraining_trigger.json
+```
