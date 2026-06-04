@@ -3183,6 +3183,54 @@ Install:
 pip install -r requirements.txt
 ```
 
+### Step 71: Add OpenTelemetry Dependencies
+
+Added OpenTelemetry dependencies for distributed tracing.
+
+OpenTelemetry will be used to trace FastAPI requests and send spans to an observability backend.
+
+Dependencies:
+
+```text
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+opentelemetry-exporter-otlp
+```
+
+Implementation:
+
+```text
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+opentelemetry-exporter-otlp
+```
+
+Tests:
+
+```python
+def test_opentelemetry_dependencies_import():
+    import opentelemetry.trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.sdk.trace import TracerProvider
+
+    assert opentelemetry.trace is not None
+    assert OTLPSpanExporter is not None
+    assert FastAPIInstrumentor is not None
+    assert TracerProvider is not None
+```
+
+Run:
+
+```bash
+pip install -r requirements.txt
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
 ### Step 72: Add OpenTelemetry Tracing Module
 
 Added OpenTelemetry tracing support for FastAPI.
@@ -4079,44 +4127,18 @@ git add .
 git commit -m "feat: add loki logs dashboard panel"
 ```
 
-### Step 80: Add Locust Load Testing
+### Step 80: Locust Load Testing
 
-Added Locust for load testing the FastAPI inference service.
+Added Locust load testing for the FastAPI inference API.
 
-This step simulates multiple users calling the API so we can observe API behavior under load.
-
-Load testing flow:
+The load test runs:
 
 ```text
-Locust
-    ↓
-FastAPI /predict
-    ↓
-Prometheus metrics
-    ↓
-Grafana dashboard
-    ↓
-Loki logs
-```
-
-Files created or updated:
-
-```text
-locustfile.py
-requirements.txt
-README.md
-```
-
-Added dependency:
-
-```text
-locust
-```
-
-Created load test file:
-
-```text
-locustfile.py
+health checks
+→ prediction requests
+→ Prometheus metrics update
+→ Grafana dashboard updates
+→ Loki logs are generated
 ```
 
 Implementation:
@@ -4150,114 +4172,7 @@ class LoanApprovalUser(HttpUser):
         self.client.get("/health")
 ```
 
-Task behavior:
-
-```text
-predict runs more frequently than health
-health confirms API availability
-wait_time simulates user think time
-```
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Start the local stack:
-
-```bash
-docker compose up -d
-```
-
-Run Locust UI:
-
-```bash
-locust -f locustfile.py --host http://127.0.0.1:8000
-```
-
-Open Locust:
-
-```text
-2
-```
-
-Start with:
-
-```text
-Number of users: 10
-Spawn rate: 2
-Host: http://127.0.0.1:8000
-```
-
-Headless smoke load test:
-
-```bash
-locust -f locustfile.py \
-  --host http://127.0.0.1:8000 \
-  --users 10 \
-  --spawn-rate 2 \
-  --run-time 1m \
-  --headless
-```
-
-Watch Grafana:
-
-```text
-Grafana → Dashboards → MLOps API Monitoring
-```
-
-Watch Loki logs:
-
-```text
-Grafana → Explore → Loki
-```
-
-Useful Loki query:
-
-```logql
-{job="docker"} |= "locust-load-test"
-```
-
-Useful Prometheus queries:
-
-```promql
-rate(prediction_requests_total[1m])
-```
-
-```promql
-rate(prediction_errors_total[1m])
-```
-
-```promql
-histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
-```
-
-Expected result:
-
-```text
-Locust shows successful requests.
-Grafana request rate increases.
-Grafana latency panels update.
-Loki shows locust-load-test request logs.
-```
-
-If Locust cannot connect:
-
-```text
-1. Confirm API is running on port 8000.
-2. Run docker compose ps.
-3. Open http://127.0.0.1:8000/health.
-4. Confirm Locust host is http://127.0.0.1:8000.
-```
-
-Added test:
-
-```text
-tests/test_locustfile.py
-```
-
-Test implementation:
+Tests:
 
 ```python
 from locustfile import LoanApprovalUser
@@ -4269,11 +4184,59 @@ def test_loan_approval_user_has_tasks():
     assert len(tasks) > 0
 ```
 
-This test verifies that the Locust user class imports correctly and has registered tasks.
-
-Commit changes:
+Run:
 
 ```bash
-git add .
-git commit -m "feat: add locust load testing"
+pip install -r requirements.txt
+black src tests locustfile.py
+flake8 src tests locustfile.py
+PYTHONPATH=src pytest
+docker compose up -d
+locust -f locustfile.py --host http://127.0.0.1:8000
+```
+
+Open Locust:
+
+```text
+http://127.0.0.1:8089
+```
+
+Start with:
+
+```text
+Number of users: 10
+Spawn rate: 2
+Host: http://127.0.0.1:8000
+```
+
+Headless run:
+
+```bash
+locust -f locustfile.py \
+  --host http://127.0.0.1:8000 \
+  --users 10 \
+  --spawn-rate 2 \
+  --run-time 1m \
+  --headless
+```
+
+Check Loki:
+
+```logql
+{job="docker"} |= "locust-load-test"
+```
+
+Check Grafana:
+
+```text
+Grafana → Dashboards → MLOps API Monitoring
+```
+
+Expected result:
+
+```text
+Locust sends traffic to the API.
+Prediction request metrics increase.
+Latency panels update.
+Loki shows locust-load-test logs.
 ```
