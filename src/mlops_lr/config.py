@@ -40,6 +40,9 @@ class ServingConfig(BaseModel):
     port: int
     model_stage: str
 
+class MonitoringConfig(BaseModel):
+    prediction_log_path: str
+
 
 class AppConfig(BaseModel):
     project: ProjectConfig
@@ -48,7 +51,7 @@ class AppConfig(BaseModel):
     mlflow: MLflowConfig
     tuning: TuningConfig
     serving: ServingConfig
-
+    monitoring: MonitoringConfig
 
 def load_config(config_path: str = "configs/config.yaml") -> AppConfig:
     path = Path(config_path)

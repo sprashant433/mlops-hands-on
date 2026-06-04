@@ -25,6 +25,9 @@ serving:
   port: 8000
   model_stage: Production
 
+monitoring:
+  prediction_log_path: data/predictions.csv
+
 tuning:
   max_evals: 10
 

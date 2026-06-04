@@ -12,6 +12,7 @@ from mlops_lr.schemas import PredictionRequest, PredictionResponse
 import logging
 
 from mlops_lr.json_logging import configure_json_logging
+from mlops_lr.prediction_logging import append_prediction_log, prediction_to_record
 
 configure_json_logging()
 logger = logging.getLogger(__name__)
@@ -107,6 +108,17 @@ def predict(payload: PredictionRequest, http_request: Request) -> PredictionResp
             span.set_attribute("prediction.probability", probability)
 
             PREDICTION_PROBABILITY.observe(probability)
+
+            trace_context = get_current_trace_context()
+            record = prediction_to_record(
+                request=payload,
+                prediction=prediction,
+                probability=probability,
+                request_id=request_id,
+                trace_id=trace_context["trace_id"],
+            )
+            append_prediction_log(record, config.monitoring.prediction_log_path)
+
             logger.info(
                 "prediction_completed",
                 extra={
@@ -115,9 +127,10 @@ def predict(payload: PredictionRequest, http_request: Request) -> PredictionResp
                     "probability": probability,
                     "credit_score": payload.credit_score,
                     "debt_to_income": payload.debt_to_income,
-                    **get_current_trace_context(),
+                    **trace_context,
                 },
             )
+            
     except Exception as error:
         PREDICTION_ERRORS.inc()
         logger.exception(

@@ -3162,7 +3162,7 @@ Created tag:
 v1.0-monitoring
 ```
 
-## Phase 12: OpenTelemetry
+## Phase 12: Phase 12: OpenTelemetry / Tracing
 
 ### Step 71: Add OpenTelemetry Dependencies
 
@@ -3573,6 +3573,7 @@ Search:
 service: mlops-logistic-regression-api
 operation: model_prediction
 ```
+## Phase 13: Logging / Log Aggregation
 
 ### Step 76: Add Structured JSON Logging
 
@@ -4139,6 +4140,7 @@ Expected log query:
 {job="docker"} |= "dashboard-test-123"
 ```
 
+## Phase 14: Load Testing
 ### Step 80: Add Locust Load Testing
 
 Added Locust load testing for the FastAPI inference API.
@@ -4691,4 +4693,164 @@ python scripts/summarize_load_test.py \
   --max-failure-count 0 \
   --max-average-response-time-ms 1000
 cat reports/load_tests/ci_locust_summary.json
+```
+
+## Phase 15 — Data & Model Monitoring
+
+### Step 86: Add Prediction Logging Store
+
+Added a CSV prediction logging store for ML monitoring.
+
+The prediction logging flow is:
+
+```text
+/predict request
+→ model prediction
+→ prediction record
+→ data/predictions.csv
+→ drift monitoring later
+```
+
+Configuration:
+
+```yaml
+monitoring:
+  prediction_log_path: data/predictions.csv
+```
+
+Implementation:
+
+```python
+from pathlib import Path
+
+import pandas as pd
+
+from mlops_lr.schemas import PredictionRequest
+
+
+def prediction_to_record(
+    request: PredictionRequest,
+    prediction: int,
+    probability: float,
+    request_id: str,
+    trace_id: str,
+) -> dict[str, float | int | str]:
+    return {
+        "request_id": request_id,
+        "trace_id": trace_id,
+        "age": request.age,
+        "income": request.income,
+        "loan_amount": request.loan_amount,
+        "credit_score": request.credit_score,
+        "employment_years": request.employment_years,
+        "debt_to_income": request.debt_to_income,
+        "prediction": prediction,
+        "probability": probability,
+    }
+
+
+def append_prediction_log(record: dict, output_path: str) -> None:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    row = pd.DataFrame([record])
+
+    if path.exists():
+        row.to_csv(path, mode="a", header=False, index=False)
+    else:
+        row.to_csv(path, index=False)
+```
+
+API integration:
+
+```python
+trace_context = get_current_trace_context()
+record = prediction_to_record(
+    request=payload,
+    prediction=prediction,
+    probability=probability,
+    request_id=request_id,
+    trace_id=trace_context["trace_id"],
+)
+append_prediction_log(record, config.monitoring.prediction_log_path)
+```
+
+Tests:
+
+```python
+import pandas as pd
+
+from mlops_lr.prediction_logging import append_prediction_log, prediction_to_record
+from mlops_lr.schemas import PredictionRequest
+
+
+def test_prediction_to_record():
+    request = PredictionRequest(
+        age=35,
+        income=75000,
+        loan_amount=25000,
+        credit_score=700,
+        employment_years=5,
+        debt_to_income=0.3,
+    )
+
+    record = prediction_to_record(
+        request=request,
+        prediction=1,
+        probability=0.91,
+        request_id="request-123",
+        trace_id="trace-123",
+    )
+
+    assert record["request_id"] == "request-123"
+    assert record["trace_id"] == "trace-123"
+    assert record["credit_score"] == 700
+    assert record["prediction"] == 1
+    assert record["probability"] == 0.91
+
+
+def test_append_prediction_log(tmp_path):
+    output_path = tmp_path / "predictions.csv"
+
+    record = {
+        "request_id": "request-123",
+        "trace_id": "trace-123",
+        "age": 35,
+        "income": 75000,
+        "loan_amount": 25000,
+        "credit_score": 700,
+        "employment_years": 5,
+        "debt_to_income": 0.3,
+        "prediction": 1,
+        "probability": 0.91,
+    }
+
+    append_prediction_log(record, str(output_path))
+    append_prediction_log(record, str(output_path))
+
+    logs = pd.read_csv(output_path)
+
+    assert len(logs) == 2
+    assert logs.iloc[0]["request_id"] == "request-123"
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+docker compose up -d --build api
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -H "x-request-id: prediction-log-test-123" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+tail -n 5 data/predictions.csv
 ```
