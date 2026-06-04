@@ -3278,9 +3278,17 @@ flake8 src tests
 PYTHONPATH=src pytest
 ```
 
-### Step 73: Add OpenTelemetry Collector Config
+### Step 73: Add OpenTelemetry Collector and Jaeger
 
 Added OpenTelemetry Collector and Jaeger for distributed tracing.
+
+Tracing flow:
+
+```text
+FastAPI
+→ OpenTelemetry Collector
+→ Jaeger
+```
 
 Collector config:
 
@@ -3335,16 +3343,19 @@ Docker Compose services:
       - "14250:14250"
 ```
 
+Run:
+
+```bash
+docker compose up -d
+docker compose ps
+docker logs mlops-otel-collector --tail 50
+docker logs mlops-jaeger --tail 50
+```
+
 Open Jaeger:
 
 ```text
 http://127.0.0.1:16686
-```
-
-Search service:
-
-```text
-mlops-logistic-regression-api
 ```
 
 ### Step 74: Add Trace IDs to API Responses
