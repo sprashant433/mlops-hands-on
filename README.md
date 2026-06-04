@@ -5206,3 +5206,131 @@ black src tests scripts locustfile.py
 flake8 src tests scripts locustfile.py
 PYTHONPATH=src pytest
 ```
+
+### Step 90: Create Reference Monitoring Dataset
+
+Created a reference monitoring dataset for drift comparison.
+
+The reference monitoring dataset is built from processed training data.
+
+The monitoring dataset flow is:
+
+```text
+data/processed.csv
+→ select feature columns
+→ data/reference_monitoring.csv
+→ Evidently reference dataset
+```
+
+Implementation:
+
+```python
+from pathlib import Path
+
+import pandas as pd
+
+
+FEATURE_COLUMNS = [
+    "age",
+    "income",
+    "loan_amount",
+    "credit_score",
+    "employment_years",
+    "debt_to_income",
+]
+
+
+def create_reference_monitoring_dataset(
+    processed_data_path: str,
+    output_path: str,
+) -> pd.DataFrame:
+    data = pd.read_csv(processed_data_path)
+
+    missing_columns = [
+        column for column in FEATURE_COLUMNS if column not in data.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(f"Missing feature columns: {missing_columns}")
+
+    reference = data[FEATURE_COLUMNS].copy()
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    reference.to_csv(path, index=False)
+
+    return reference
+```
+
+Tests:
+
+```python
+import pandas as pd
+import pytest
+
+from mlops_lr.monitoring_dataset import create_reference_monitoring_dataset
+
+
+def test_create_reference_monitoring_dataset(tmp_path):
+    processed_data_path = tmp_path / "processed.csv"
+    output_path = tmp_path / "reference_monitoring.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+                "loan_amount": 25000,
+                "credit_score": 700,
+                "employment_years": 5,
+                "debt_to_income": 0.3,
+                "loan_approved": 1,
+            }
+        ]
+    ).to_csv(processed_data_path, index=False)
+
+    reference = create_reference_monitoring_dataset(
+        processed_data_path=str(processed_data_path),
+        output_path=str(output_path),
+    )
+
+    assert output_path.exists()
+    assert list(reference.columns) == [
+        "age",
+        "income",
+        "loan_amount",
+        "credit_score",
+        "employment_years",
+        "debt_to_income",
+    ]
+
+
+def test_create_reference_monitoring_dataset_fails_for_missing_columns(tmp_path):
+    processed_data_path = tmp_path / "processed.csv"
+    output_path = tmp_path / "reference_monitoring.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+            }
+        ]
+    ).to_csv(processed_data_path, index=False)
+
+    with pytest.raises(ValueError, match="Missing feature columns"):
+        create_reference_monitoring_dataset(
+            processed_data_path=str(processed_data_path),
+            output_path=str(output_path),
+        )
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.monitoring_dataset import create_reference_monitoring_dataset; create_reference_monitoring_dataset('data/processed.csv', 'data/reference_monitoring.csv')"
+head data/reference_monitoring.csv
+```
