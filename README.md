@@ -6762,3 +6762,153 @@ flake8 src tests scripts locustfile.py
 PYTHONPATH=src pytest
 PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
 ```
+
+### Step 102: Add Retraining Result Report
+
+Added a retraining result report.
+
+The retraining result flow is:
+
+```text
+retraining pipeline
+→ skipped or retrained result
+→ reports/retraining_result.json
+```
+
+Implementation:
+
+```python
+import json
+from pathlib import Path
+
+
+def save_retraining_result(
+    result: dict,
+    output_path: str,
+) -> None:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    path.write_text(json.dumps(result, indent=2))
+
+
+def run_retraining_pipeline(
+    alert_path: str = "reports/drift_alert.json",
+    output_path: str = "reports/retraining_result.json",
+) -> dict:
+    alert = load_drift_alert(alert_path)
+
+    if not should_trigger_retraining(alert):
+        result = {
+            "status": "skipped",
+            "reason": "drift_not_detected",
+        }
+        save_retraining_result(result, output_path)
+        return result
+
+    metrics = run_pipeline()
+
+    result = {
+        "status": "retrained",
+        "metrics": metrics,
+    }
+    save_retraining_result(result, output_path)
+
+    return result
+```
+
+Tests:
+
+```python
+def test_save_retraining_result(tmp_path):
+    output_path = tmp_path / "retraining_result.json"
+    result = {
+        "status": "skipped",
+        "reason": "drift_not_detected",
+    }
+
+    save_retraining_result(result, str(output_path))
+
+    saved = json.loads(output_path.read_text())
+
+    assert saved == result
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
+cat reports/retraining_result.json
+```
+
+### Step 103: Phase 15 Final Checkpoint
+
+Completed Phase 15: Data and Model Monitoring.
+
+Phase 15 added:
+
+```text
+prediction logging
+input statistics
+prediction statistics
+reference monitoring dataset
+Evidently data drift reports
+Evidently prediction drift reports
+drift monitoring pipeline
+drift monitoring runbook
+drift alerting
+Prometheus drift alert metric
+Grafana drift alert panel
+retraining trigger
+retraining pipeline
+retraining result report
+```
+
+Final Phase 15 flow:
+
+```text
+FastAPI prediction
+→ data/predictions.csv
+→ input statistics
+→ prediction statistics
+→ reference monitoring dataset
+→ Evidently drift reports
+→ reports/drift_alert.json
+→ model_drift_detected Prometheus metric
+→ Grafana drift alert panel
+→ reports/retraining_trigger.json
+→ retraining pipeline
+→ reports/retraining_result.json
+```
+
+Run final validation:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
+cat reports/drift_alert.json
+cat reports/retraining_trigger.json
+cat reports/retraining_result.json
+curl http://127.0.0.1:8000/metrics | grep model_drift_detected
+```
+
+Phase checkpoint tag:
+
+```text
+v1.3-drift-monitoring
+```
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: develop into main"
+git tag v1.3-drift-monitoring
+git checkout develop
+```
