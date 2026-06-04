@@ -130,7 +130,7 @@ def predict(payload: PredictionRequest, http_request: Request) -> PredictionResp
                     **trace_context,
                 },
             )
-            
+
     except Exception as error:
         PREDICTION_ERRORS.inc()
         logger.exception(

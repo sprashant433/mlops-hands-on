@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Union
 
 import pandas as pd
 
@@ -11,7 +12,7 @@ def prediction_to_record(
     probability: float,
     request_id: str,
     trace_id: str,
-) -> dict[str, float | int | str]:
+) -> dict[str, Union[float, int, str]]:
     return {
         "request_id": request_id,
         "trace_id": trace_id,

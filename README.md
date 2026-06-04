@@ -4734,7 +4734,7 @@ def prediction_to_record(
     probability: float,
     request_id: str,
     trace_id: str,
-) -> dict[str, float | int | str]:
+) -> dict[str, Union[float, int, str]]:
     return {
         "request_id": request_id,
         "trace_id": trace_id,
@@ -4853,4 +4853,164 @@ curl -X POST http://127.0.0.1:8000/predict \
     "debt_to_income": 0.3
   }'
 tail -n 5 data/predictions.csv
+```
+
+### Step 87: Add Input Statistics Report
+
+Added input feature statistics for prediction logs.
+
+The input statistics flow is:
+
+```text
+data/predictions.csv
+→ compute feature statistics
+→ save input statistics report
+→ use later for drift monitoring
+```
+
+Implementation:
+
+```python
+from pathlib import Path
+
+import pandas as pd
+
+
+FEATURE_COLUMNS = [
+    "age",
+    "income",
+    "loan_amount",
+    "credit_score",
+    "employment_years",
+    "debt_to_income",
+]
+
+
+def compute_input_statistics(prediction_log_path: str) -> dict[str, dict[str, float]]:
+    logs = pd.read_csv(prediction_log_path)
+
+    missing_columns = [
+        column for column in FEATURE_COLUMNS if column not in logs.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(f"Missing feature columns: {missing_columns}")
+
+    statistics: dict[str, dict[str, float]] = {}
+
+    for column in FEATURE_COLUMNS:
+        statistics[column] = {
+            "mean": float(logs[column].mean()),
+            "std": float(logs[column].std()),
+            "min": float(logs[column].min()),
+            "max": float(logs[column].max()),
+        }
+
+    return statistics
+
+
+def save_input_statistics(
+    statistics: dict[str, dict[str, float]],
+    output_path: str,
+) -> None:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    rows = []
+
+    for feature_name, feature_stats in statistics.items():
+        row = {"feature": feature_name}
+        row.update(feature_stats)
+        rows.append(row)
+
+    pd.DataFrame(rows).to_csv(path, index=False)
+```
+
+Tests:
+
+```python
+import pandas as pd
+import pytest
+
+from mlops_lr.input_statistics import (
+    compute_input_statistics,
+    save_input_statistics,
+)
+
+
+def test_compute_input_statistics(tmp_path):
+    prediction_log_path = tmp_path / "predictions.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "age": 30,
+                "income": 60000,
+                "loan_amount": 20000,
+                "credit_score": 680,
+                "employment_years": 4,
+                "debt_to_income": 0.25,
+            },
+            {
+                "age": 40,
+                "income": 80000,
+                "loan_amount": 30000,
+                "credit_score": 720,
+                "employment_years": 6,
+                "debt_to_income": 0.35,
+            },
+        ]
+    ).to_csv(prediction_log_path, index=False)
+
+    statistics = compute_input_statistics(str(prediction_log_path))
+
+    assert statistics["age"]["mean"] == 35
+    assert statistics["income"]["min"] == 60000
+    assert statistics["credit_score"]["max"] == 720
+
+
+def test_compute_input_statistics_fails_for_missing_columns(tmp_path):
+    prediction_log_path = tmp_path / "predictions.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "age": 30,
+                "income": 60000,
+            }
+        ]
+    ).to_csv(prediction_log_path, index=False)
+
+    with pytest.raises(ValueError, match="Missing feature columns"):
+        compute_input_statistics(str(prediction_log_path))
+
+
+def test_save_input_statistics(tmp_path):
+    output_path = tmp_path / "input_statistics.csv"
+
+    statistics = {
+        "age": {
+            "mean": 35,
+            "std": 7.07,
+            "min": 30,
+            "max": 40,
+        }
+    }
+
+    save_input_statistics(statistics, str(output_path))
+
+    saved = pd.read_csv(output_path)
+
+    assert saved.iloc[0]["feature"] == "age"
+    assert saved.iloc[0]["mean"] == 35
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.input_statistics import compute_input_statistics, save_input_statistics; stats = compute_input_statistics('data/predictions.csv'); save_input_statistics(stats, 'reports/input_statistics.csv')"
+cat reports/input_statistics.csv
 ```
