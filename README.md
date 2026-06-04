@@ -6648,3 +6648,117 @@ PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
 cat reports/drift_alert.json
 cat reports/retraining_trigger.json
 ```
+
+### Step 101: Add Retraining Pipeline Script
+
+Added a retraining pipeline script that runs only when drift is detected.
+
+The retraining flow is:
+
+```text
+reports/drift_alert.json
+→ check drift status
+→ skip if no drift
+→ run training pipeline if drift detected
+→ return retraining result
+```
+
+Implementation:
+
+```python
+from mlops_lr.pipeline import run_pipeline
+from mlops_lr.retraining_trigger import load_drift_alert, should_trigger_retraining
+
+
+def run_retraining_pipeline(
+    alert_path: str = "reports/drift_alert.json",
+) -> dict:
+    alert = load_drift_alert(alert_path)
+
+    if not should_trigger_retraining(alert):
+        return {
+            "status": "skipped",
+            "reason": "drift_not_detected",
+        }
+
+    metrics = run_pipeline()
+
+    return {
+        "status": "retrained",
+        "metrics": metrics,
+    }
+
+
+if __name__ == "__main__":
+    result = run_retraining_pipeline()
+    print(result)
+```
+
+Tests:
+
+```python
+import json
+
+from mlops_lr.retraining_pipeline import run_retraining_pipeline
+
+
+def test_run_retraining_pipeline_skips_when_no_drift(tmp_path):
+    alert_path = tmp_path / "drift_alert.json"
+    alert_path.write_text(
+        json.dumps(
+            {
+                "drift_detected": False,
+                "status": "ok",
+            }
+        )
+    )
+
+    result = run_retraining_pipeline(alert_path=str(alert_path))
+
+    assert result == {
+        "status": "skipped",
+        "reason": "drift_not_detected",
+    }
+
+
+def test_run_retraining_pipeline_runs_when_drift_detected(monkeypatch, tmp_path):
+    alert_path = tmp_path / "drift_alert.json"
+    alert_path.write_text(
+        json.dumps(
+            {
+                "drift_detected": True,
+                "status": "alert",
+            }
+        )
+    )
+
+    def fake_run_pipeline():
+        return {
+            "accuracy": 0.9,
+            "precision": 0.8,
+        }
+
+    monkeypatch.setattr(
+        "mlops_lr.retraining_pipeline.run_pipeline",
+        fake_run_pipeline,
+    )
+
+    result = run_retraining_pipeline(alert_path=str(alert_path))
+
+    assert result == {
+        "status": "retrained",
+        "metrics": {
+            "accuracy": 0.9,
+            "precision": 0.8,
+        },
+    }
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
+```
