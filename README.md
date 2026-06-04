@@ -3880,13 +3880,21 @@ Query:
 {job="docker"} |= "prediction_completed"
 ```
 
-### Step 78: Add Log Correlation IDs
+### Step 78: Add Request Correlation IDs
 
 Added request correlation IDs to API responses and structured logs.
 
-A request ID helps connect one request across API response headers, JSON logs, Loki, and Jaeger.
+A request ID helps connect:
 
-Request ID middleware:
+```text
+HTTP request
+→ API response header
+→ JSON log
+→ Loki search
+→ Jaeger trace
+```
+
+Middleware:
 
 ```python
 @app.middleware("http")
@@ -3900,7 +3908,7 @@ async def add_request_id(request: Request, call_next):
     return response
 ```
 
-Prediction endpoint now uses separate names for the request body and HTTP request:
+Prediction endpoint uses separate names for the request body and HTTP request:
 
 ```python
 @app.post("/predict", response_model=PredictionResponse)
@@ -3939,23 +3947,44 @@ logger.exception(
 )
 ```
 
+Tests:
+
+```python
+def test_predict(monkeypatch):
+    def fake_predict(request):
+        return 1, 0.82
+
+    monkeypatch.setattr(model_service, "predict", fake_predict)
+
+    response = client.post(
+        "/predict",
+        headers={"x-request-id": "test-request-123"},
+        json={
+            "age": 35,
+            "income": 75000,
+            "loan_amount": 25000,
+            "credit_score": 700,
+            "employment_years": 5,
+            "debt_to_income": 0.3,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["x-request-id"] == "test-request-123"
+    assert response.json() == {
+        "loan_approved": 1,
+        "probability": 0.82,
+    }
+
+```
+
 Run:
 
 ```bash
 black src tests
 flake8 src tests
 PYTHONPATH=src pytest
-```
-
-Rebuild API:
-
-```bash
 docker compose up -d --build api
-```
-
-Test with custom request ID:
-
-```bash
 curl -i -X POST http://127.0.0.1:8000/predict \
   -H "Content-Type: application/json" \
   -H "x-request-id: test-request-123" \
@@ -3967,6 +3996,7 @@ curl -i -X POST http://127.0.0.1:8000/predict \
     "employment_years": 5,
     "debt_to_income": 0.3
   }'
+docker logs mlops-logistic-regression-api --tail 20
 ```
 
 Expected response header:
@@ -3975,22 +4005,16 @@ Expected response header:
 x-request-id: test-request-123
 ```
 
-Check Docker logs:
-
-```bash
-docker logs mlops-logistic-regression-api --tail 20
-```
-
 Expected log field:
 
 ```json
 "request_id": "test-request-123"
 ```
 
-Search in Grafana Loki:
+Search in Loki:
 
 ```logql
-{compose_service="api"} |= "test-request-123"
+{job="docker"} |= "test-request-123"
 ```
 
 ### Step 79: Add Loki Log Dashboard Panel
