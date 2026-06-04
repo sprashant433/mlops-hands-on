@@ -13,6 +13,7 @@ import logging
 
 from mlops_lr.json_logging import configure_json_logging
 from mlops_lr.prediction_logging import append_prediction_log, prediction_to_record
+from mlops_lr.drift_metrics import update_drift_metric
 
 configure_json_logging()
 logger = logging.getLogger(__name__)
@@ -61,6 +62,17 @@ async def add_request_id(request: Request, call_next):
 
     response = await call_next(request)
     response.headers["x-request-id"] = request_id
+
+    return response
+
+
+@app.middleware("http")
+async def refresh_drift_metric(request: Request, call_next):
+    if request.url.path == "/metrics":
+        config = load_config()
+        update_drift_metric(config.monitoring.drift_alert_path)
+
+    response = await call_next(request)
 
     return response
 

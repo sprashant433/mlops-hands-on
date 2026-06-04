@@ -6312,3 +6312,117 @@ Check alerts:
 ```text
 http://127.0.0.1:9090/alerts
 ```
+
+### Step 98: Add Grafana Drift Alert Panel
+
+Added a Grafana dashboard panel for drift alert status.
+
+The drift alert dashboard flow is:
+
+```text
+reports/drift_alert.json
+→ FastAPI /metrics
+→ Prometheus model_drift_detected
+→ Grafana stat panel
+```
+
+Implementation:
+
+```json
+{
+  "type": "stat",
+  "title": "Model Drift Alert",
+  "gridPos": { "x": 0, "y": 24, "w": 8, "h": 6 },
+  "targets": [
+    {
+      "expr": "model_drift_detected",
+      "legendFormat": "drift detected",
+      "refId": "A"
+    }
+  ],
+  "fieldConfig": {
+    "defaults": {
+      "mappings": [
+        {
+          "type": "value",
+          "options": {
+            "0": {
+              "text": "OK",
+              "color": "green"
+            },
+            "1": {
+              "text": "DRIFT",
+              "color": "red"
+            }
+          }
+        }
+      ],
+      "thresholds": {
+        "mode": "absolute",
+        "steps": [
+          {
+            "color": "green",
+            "value": null
+          },
+          {
+            "color": "red",
+            "value": 1
+          }
+        ]
+      }
+    },
+    "overrides": []
+  },
+  "options": {
+    "reduceOptions": {
+      "values": false,
+      "calcs": ["lastNotNull"],
+      "fields": ""
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "background",
+    "graphMode": "none",
+    "justifyMode": "auto"
+  }
+}
+```
+
+Run:
+
+```bash
+python -m json.tool monitoring/grafana/dashboards/mlops-api-dashboard.json > /tmp/mlops-dashboard.json
+docker compose restart grafana
+docker logs mlops-grafana --tail 50
+```
+
+Check Prometheus metric:
+
+```bash
+curl http://127.0.0.1:8000/metrics | grep model_drift_detected
+```
+
+Open Grafana:
+
+```text
+http://127.0.0.1:3000
+```
+
+Open dashboard:
+
+```text
+Dashboards → MLOps API Monitoring
+```
+
+Expected panel:
+
+```text
+Model Drift Alert
+```
+
+Expected values:
+
+```text
+0 = OK
+1 = DRIFT
+```
