@@ -4268,3 +4268,91 @@ Prediction request metrics increase.
 Latency panels update.
 Loki shows locust-load-test logs.
 ```
+
+### Step 81: Add Load Test Result Export
+
+Added a reports directory for Locust load test results.
+
+Load test reports are stored in:
+
+```text
+reports/load_tests
+```
+
+The directory is tracked with:
+
+```text
+reports/load_tests/.gitkeep
+```
+
+The export flow is:
+
+```text
+Locust headless run
+→ CSV result files
+→ reports/load_tests
+→ review latency, throughput, failures
+```
+
+Implementation:
+
+```bash
+mkdir -p reports/load_tests
+touch reports/load_tests/.gitkeep
+```
+
+Locust CSV export command:
+
+```bash
+locust -f locustfile.py \
+  --host http://127.0.0.1:8000 \
+  --users 10 \
+  --spawn-rate 2 \
+  --run-time 1m \
+  --headless \
+  --csv reports/load_tests/locust_10_users
+```
+
+Generated files:
+
+```text
+reports/load_tests/locust_10_users_stats.csv
+reports/load_tests/locust_10_users_failures.csv
+reports/load_tests/locust_10_users_exceptions.csv
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+
+def test_load_test_reports_directory_exists():
+    reports_dir = Path("reports/load_tests")
+
+    assert reports_dir.exists()
+    assert reports_dir.is_dir()
+```
+
+Run:
+
+```bash
+black src tests locustfile.py
+flake8 src tests locustfile.py
+PYTHONPATH=src pytest
+docker compose up -d
+locust -f locustfile.py \
+  --host http://127.0.0.1:8000 \
+  --users 10 \
+  --spawn-rate 2 \
+  --run-time 1m \
+  --headless \
+  --csv reports/load_tests/locust_10_users
+ls reports/load_tests
+```
+
+Expected result:
+
+```text
+Locust writes CSV reports under reports/load_tests.
+```
