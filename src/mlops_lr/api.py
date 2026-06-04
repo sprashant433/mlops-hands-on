@@ -107,8 +107,26 @@ def predict(request: PredictionRequest) -> PredictionResponse:
             span.set_attribute("prediction.probability", probability)
 
             PREDICTION_PROBABILITY.observe(probability)
+            logger.info(
+                "prediction_completed",
+                extra={
+                    "loan_approved": prediction,
+                    "probability": probability,
+                    "credit_score": request.credit_score,
+                    "debt_to_income": request.debt_to_income,
+                    **get_current_trace_context(),
+                },
+            )
     except Exception as error:
         PREDICTION_ERRORS.inc()
+        logger.exception(
+            "prediction_failed",
+            extra={
+                "credit_score": request.credit_score,
+                "debt_to_income": request.debt_to_income,
+                **get_current_trace_context(),
+            },
+        )
         raise HTTPException(status_code=500, detail=str(error)) from error
 
     return PredictionResponse(

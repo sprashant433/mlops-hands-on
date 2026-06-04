@@ -3574,66 +3574,17 @@ service: mlops-logistic-regression-api
 operation: model_prediction
 ```
 
-### Step 75: Add Manual Spans Around Prediction
-
-Added a custom OpenTelemetry span around model prediction.
-
-Span name:
-
-```text
-model_prediction
-```
-
-Span attributes:
-
-```text
-model.name
-model.stage
-request.credit_score
-request.debt_to_income
-prediction.loan_approved
-prediction.probability
-```
-
-Implementation:
-
-```python
-tracer = trace.get_tracer(__name__)
-
-with tracer.start_as_current_span("model_prediction") as span:
-    config = load_config()
-
-    span.set_attribute("model.name", config.mlflow.registered_model_name)
-    span.set_attribute("model.stage", config.serving.model_stage)
-    span.set_attribute("request.credit_score", request.credit_score)
-    span.set_attribute("request.debt_to_income", request.debt_to_income)
-
-    prediction, probability = model_service.predict(request)
-
-    span.set_attribute("prediction.loan_approved", prediction)
-    span.set_attribute("prediction.probability", probability)
-```
-
-Check in Jaeger:
-
-```text
-Service → mlops-logistic-regression-api → operation → model_prediction
-```
-
 ### Step 76: Add Structured JSON Logging
 
-Phase 13 starts with application logs.
+Added structured JSON logging for FastAPI prediction events.
 
-Goal:
-
-```text
-Human-readable message + machine-readable JSON fields
-```
-
-Create:
+The logging flow is:
 
 ```text
-src/mlops_lr/json_logging.py
+API prediction
+→ JSON log line
+→ Docker logs
+→ Loki collection later
 ```
 
 Implementation:
@@ -3645,9 +3596,33 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+STANDARD_LOG_FIELDS = {
+    "name",
+    "msg",
+    "args",
+    "levelname",
+    "levelno",
+    "pathname",
+    "filename",
+    "module",
+    "exc_info",
+    "exc_text",
+    "stack_info",
+    "lineno",
+    "funcName",
+    "created",
+    "msecs",
+    "relativeCreated",
+    "thread",
+    "threadName",
+    "processName",
+    "process",
+}
+
+
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        log_record: dict[str, Any] = {
+        payload: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(
                 record.created,
                 tz=timezone.utc,
@@ -3657,41 +3632,18 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        if record.exc_info:
-            log_record["exception"] = self.formatException(record.exc_info)
-
         extra_fields = {
             key: value
             for key, value in record.__dict__.items()
-            if key
-            not in {
-                "name",
-                "msg",
-                "args",
-                "levelname",
-                "levelno",
-                "pathname",
-                "filename",
-                "module",
-                "exc_info",
-                "exc_text",
-                "stack_info",
-                "lineno",
-                "funcName",
-                "created",
-                "msecs",
-                "relativeCreated",
-                "thread",
-                "threadName",
-                "processName",
-                "process",
-                "taskName",
-            }
+            if key not in STANDARD_LOG_FIELDS
         }
 
-        log_record.update(extra_fields)
+        payload.update(extra_fields)
 
-        return json.dumps(log_record, default=str)
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+
+        return json.dumps(payload, default=str)
 
 
 def configure_json_logging(level: int = logging.INFO) -> None:
@@ -3704,18 +3656,14 @@ def configure_json_logging(level: int = logging.INFO) -> None:
     root_logger.setLevel(level)
 ```
 
-Update `src/mlops_lr/api.py`:
+FastAPI logging setup:
 
 ```python
-import logging
-
-from mlops_lr.json_logging import configure_json_logging
-
 configure_json_logging()
 logger = logging.getLogger(__name__)
 ```
 
-Inside `/predict`, log success:
+Prediction success log:
 
 ```python
 logger.info(
@@ -3730,7 +3678,7 @@ logger.info(
 )
 ```
 
-Inside the exception block, log failure:
+Prediction failure log:
 
 ```python
 logger.exception(
@@ -3743,13 +3691,7 @@ logger.exception(
 )
 ```
 
-Add test:
-
-```text
-tests/test_json_logging.py
-```
-
-Implementation:
+Tests:
 
 ```python
 import json
@@ -3788,11 +3730,6 @@ Run:
 black src tests
 flake8 src tests
 PYTHONPATH=src pytest
-```
-
-Test JSON logs from Docker:
-
-```bash
 docker compose up -d --build api
 curl -X POST http://127.0.0.1:8000/predict \
   -H "Content-Type: application/json" \
@@ -3805,6 +3742,12 @@ curl -X POST http://127.0.0.1:8000/predict \
     "debt_to_income": 0.3
   }'
 docker logs mlops-logistic-regression-api --tail 20
+```
+
+Expected log message:
+
+```text
+prediction_completed
 ```
 
 Expected log shape:
