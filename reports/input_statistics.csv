@@ -1,0 +1,7 @@
+feature,mean,std,min,max
+age,35.0,0.0,35.0,35.0
+income,75000.0,0.0,75000.0,75000.0
+loan_amount,25000.0,0.0,25000.0,25000.0
+credit_score,700.0,0.0,700.0,700.0
+employment_years,5.0,0.0,5.0,5.0
+debt_to_income,0.3,0.0,0.3,0.3
