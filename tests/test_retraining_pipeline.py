@@ -1,6 +1,10 @@
 import json
 
 from mlops_lr.retraining_pipeline import run_retraining_pipeline
+from mlops_lr.retraining_pipeline import (
+    run_retraining_pipeline,
+    save_retraining_result,
+)
 
 
 def test_run_retraining_pipeline_skips_when_no_drift(tmp_path):
@@ -53,3 +57,17 @@ def test_run_retraining_pipeline_runs_when_drift_detected(monkeypatch, tmp_path)
             "precision": 0.8,
         },
     }
+
+
+def test_save_retraining_result(tmp_path):
+    output_path = tmp_path / "retraining_result.json"
+    result = {
+        "status": "skipped",
+        "reason": "drift_not_detected",
+    }
+
+    save_retraining_result(result, str(output_path))
+
+    saved = json.loads(output_path.read_text())
+
+    assert saved == result
