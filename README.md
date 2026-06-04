@@ -5749,3 +5749,179 @@ PYTHONPATH=src pytest
 PYTHONPATH=src python -c "from mlops_lr.evidently_drift import generate_prediction_drift_report; generate_prediction_drift_report('data/predictions.csv', 'data/predictions.csv', 'reports/prediction_drift.html', 'reports/prediction_drift.json')"
 ls reports
 ```
+
+### Step 93: Add Drift Monitoring Pipeline
+
+Added a single drift monitoring pipeline entry point.
+
+The drift monitoring pipeline runs:
+
+```text
+create reference monitoring dataset
+→ compute input statistics
+→ compute prediction statistics
+→ generate Evidently data drift report
+→ generate Evidently prediction drift report
+```
+
+Implementation:
+
+```python
+from mlops_lr.evidently_drift import (
+    generate_data_drift_report,
+    generate_prediction_drift_report,
+)
+from mlops_lr.input_statistics import compute_input_statistics, save_input_statistics
+from mlops_lr.monitoring_dataset import create_reference_monitoring_dataset
+from mlops_lr.prediction_drift import (
+    compute_prediction_statistics,
+    save_prediction_statistics,
+)
+
+
+def run_drift_monitoring_pipeline() -> None:
+    create_reference_monitoring_dataset(
+        processed_data_path="data/processed.csv",
+        output_path="data/reference_monitoring.csv",
+    )
+
+    input_statistics = compute_input_statistics("data/predictions.csv")
+    save_input_statistics(
+        input_statistics,
+        "reports/input_statistics.csv",
+    )
+
+    prediction_statistics = compute_prediction_statistics("data/predictions.csv")
+    save_prediction_statistics(
+        prediction_statistics,
+        "reports/prediction_statistics.csv",
+    )
+
+    generate_data_drift_report(
+        reference_path="data/reference_monitoring.csv",
+        current_path="data/predictions.csv",
+        html_output_path="reports/data_drift.html",
+        json_output_path="reports/data_drift.json",
+    )
+
+    generate_prediction_drift_report(
+        reference_path="data/predictions.csv",
+        current_path="data/predictions.csv",
+        html_output_path="reports/prediction_drift.html",
+        json_output_path="reports/prediction_drift.json",
+    )
+
+
+if __name__ == "__main__":
+    run_drift_monitoring_pipeline()
+```
+
+Tests:
+
+```python
+from mlops_lr.drift_pipeline import run_drift_monitoring_pipeline
+
+
+def test_run_drift_monitoring_pipeline(monkeypatch):
+    calls = []
+
+    def fake_create_reference_monitoring_dataset(
+        processed_data_path,
+        output_path,
+    ):
+        calls.append(("reference", processed_data_path, output_path))
+
+    def fake_compute_input_statistics(prediction_log_path):
+        calls.append(("input_stats", prediction_log_path))
+        return {"age": {"mean": 35}}
+
+    def fake_save_input_statistics(statistics, output_path):
+        calls.append(("save_input_stats", statistics, output_path))
+
+    def fake_compute_prediction_statistics(prediction_log_path):
+        calls.append(("prediction_stats", prediction_log_path))
+        return {"prediction_rate": 0.5}
+
+    def fake_save_prediction_statistics(statistics, output_path):
+        calls.append(("save_prediction_stats", statistics, output_path))
+
+    def fake_generate_data_drift_report(
+        reference_path,
+        current_path,
+        html_output_path,
+        json_output_path,
+    ):
+        calls.append(
+            (
+                "data_drift",
+                reference_path,
+                current_path,
+                html_output_path,
+                json_output_path,
+            )
+        )
+
+    def fake_generate_prediction_drift_report(
+        reference_path,
+        current_path,
+        html_output_path,
+        json_output_path,
+    ):
+        calls.append(
+            (
+                "prediction_drift",
+                reference_path,
+                current_path,
+                html_output_path,
+                json_output_path,
+            )
+        )
+
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.create_reference_monitoring_dataset",
+        fake_create_reference_monitoring_dataset,
+    )
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.compute_input_statistics",
+        fake_compute_input_statistics,
+    )
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.save_input_statistics",
+        fake_save_input_statistics,
+    )
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.compute_prediction_statistics",
+        fake_compute_prediction_statistics,
+    )
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.save_prediction_statistics",
+        fake_save_prediction_statistics,
+    )
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.generate_data_drift_report",
+        fake_generate_data_drift_report,
+    )
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.generate_prediction_drift_report",
+        fake_generate_prediction_drift_report,
+    )
+
+    run_drift_monitoring_pipeline()
+
+    assert calls[0] == (
+        "reference",
+        "data/processed.csv",
+        "data/reference_monitoring.csv",
+    )
+    assert calls[-1][0] == "prediction_drift"
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+ls reports
+```
