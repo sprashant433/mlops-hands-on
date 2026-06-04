@@ -3357,6 +3357,103 @@ Open Jaeger:
 ```text
 http://127.0.0.1:16686
 ```
+### Step 74: Add Trace IDs to API Responses
+
+Added trace context to API responses for easier correlation with Jaeger.
+
+Trace context includes:
+
+```text
+trace_id
+span_id
+```
+
+Helper:
+
+```python
+from opentelemetry import trace
+
+
+def get_current_trace_context() -> dict[str, str]:
+    span = trace.get_current_span()
+    span_context = span.get_span_context()
+
+    return {
+        "trace_id": format(span_context.trace_id, "032x"),
+        "span_id": format(span_context.span_id, "016x"),
+    }
+```
+
+Health endpoint:
+
+```python
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {
+        "status": "ok",
+        **get_current_trace_context(),
+    }
+```
+
+Model info endpoint:
+
+```python
+@app.get("/model-info")
+def model_info() -> dict[str, str]:
+    config = load_config()
+
+    return {
+        "model_name": config.mlflow.registered_model_name,
+        "model_stage": config.serving.model_stage,
+        **get_current_trace_context(),
+    }
+```
+
+Tests:
+
+```python
+def test_health():
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["status"] == "ok"
+    assert "trace_id" in body
+    assert "span_id" in body
+
+
+def test_model_info():
+    response = client.get("/model-info")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert "model_name" in body
+    assert "model_stage" in body
+    assert "trace_id" in body
+    assert "span_id" in body
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+docker compose up -d --build api
+curl http://127.0.0.1:8000/health
+```
+
+Expected response:
+
+```json
+{
+  "status": "ok",
+  "trace_id": "...",
+  "span_id": "..."
+}
+```
 
 ### Step 74: Add Trace IDs to API Responses
 

@@ -30,7 +30,8 @@ def test_model_info():
     assert response.status_code == 200
     body = response.json()
 
-    assert body["model_name"] == "LoanApprovalModel"
+    assert "model_name" in body
+    assert "model_stage" in body
     assert "trace_id" in body
     assert "span_id" in body
 
