@@ -5978,3 +5978,337 @@ git status
 git tag v1.3-drift-monitoring
 git push origin v1.3-drift-monitoring
 ```
+
+### Step 96: Add Drift Alerting
+
+Added drift alerting based on the Evidently data drift JSON report.
+
+The drift alert flow is:
+
+```text
+Evidently data drift JSON
+→ parse drift result
+→ write drift alert JSON
+→ use alert for retraining trigger later
+```
+
+Implementation:
+
+```python
+import json
+from pathlib import Path
+
+
+def load_drift_report(report_path: str) -> dict:
+    return json.loads(Path(report_path).read_text())
+
+
+def extract_dataset_drift(report: dict) -> bool:
+    report_text = json.dumps(report).lower()
+
+    if "dataset_drift" not in report_text:
+        return False
+
+    return "true" in report_text
+
+
+def write_drift_alert(
+    drift_detected: bool,
+    output_path: str,
+) -> None:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    alert = {
+        "drift_detected": drift_detected,
+        "status": "alert" if drift_detected else "ok",
+    }
+
+    path.write_text(json.dumps(alert, indent=2))
+
+
+def evaluate_drift_alert(
+    report_path: str,
+    output_path: str,
+) -> dict:
+    report = load_drift_report(report_path)
+    drift_detected = extract_dataset_drift(report)
+
+    write_drift_alert(
+        drift_detected=drift_detected,
+        output_path=output_path,
+    )
+
+    return {
+        "drift_detected": drift_detected,
+        "status": "alert" if drift_detected else "ok",
+    }
+```
+
+Pipeline integration:
+
+```python
+evaluate_drift_alert(
+    report_path="reports/data_drift.json",
+    output_path="reports/drift_alert.json",
+)
+```
+
+Tests:
+
+```python
+import json
+
+from mlops_lr.drift_alerts import (
+    evaluate_drift_alert,
+    extract_dataset_drift,
+    load_drift_report,
+    write_drift_alert,
+)
+
+
+def test_load_drift_report(tmp_path):
+    report_path = tmp_path / "data_drift.json"
+    report_path.write_text(json.dumps({"dataset_drift": True}))
+
+    report = load_drift_report(str(report_path))
+
+    assert report["dataset_drift"] is True
+
+
+def test_extract_dataset_drift_true():
+    report = {
+        "metrics": [
+            {
+                "result": {
+                    "dataset_drift": True,
+                }
+            }
+        ]
+    }
+
+    assert extract_dataset_drift(report) is True
+
+
+def test_extract_dataset_drift_false_when_missing():
+    report = {
+        "metrics": []
+    }
+
+    assert extract_dataset_drift(report) is False
+
+
+def test_write_drift_alert(tmp_path):
+    output_path = tmp_path / "drift_alert.json"
+
+    write_drift_alert(
+        drift_detected=True,
+        output_path=str(output_path),
+    )
+
+    alert = json.loads(output_path.read_text())
+
+    assert alert["drift_detected"] is True
+    assert alert["status"] == "alert"
+
+
+def test_evaluate_drift_alert(tmp_path):
+    report_path = tmp_path / "data_drift.json"
+    output_path = tmp_path / "drift_alert.json"
+
+    report_path.write_text(json.dumps({"dataset_drift": True}))
+
+    alert = evaluate_drift_alert(
+        report_path=str(report_path),
+        output_path=str(output_path),
+    )
+
+    assert alert["drift_detected"] is True
+    assert alert["status"] == "alert"
+    assert output_path.exists()
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+cat reports/drift_alert.json
+```
+
+### Step 97: Add Prometheus Drift Alert
+
+Added a Prometheus metric and alert rule for drift detection.
+
+The drift alert flow is:
+
+```text
+reports/drift_alert.json
+→ FastAPI /metrics
+→ Prometheus scrape
+→ Prometheus alert rule
+```
+
+Configuration:
+
+```yaml
+monitoring:
+  prediction_log_path: data/predictions.csv
+  drift_alert_path: reports/drift_alert.json
+```
+
+Implementation:
+
+```python
+import json
+from pathlib import Path
+
+from prometheus_client import Gauge
+
+
+DRIFT_DETECTED = Gauge(
+    "model_drift_detected",
+    "Whether model/data drift has been detected. 1 means drift alert, 0 means ok.",
+)
+
+
+def read_drift_alert_status(alert_path: str) -> float:
+    path = Path(alert_path)
+
+    if not path.exists():
+        return 0.0
+
+    alert = json.loads(path.read_text())
+
+    if alert.get("drift_detected") is True:
+        return 1.0
+
+    if alert.get("status") == "alert":
+        return 1.0
+
+    return 0.0
+
+
+def update_drift_metric(alert_path: str) -> float:
+    drift_value = read_drift_alert_status(alert_path)
+    DRIFT_DETECTED.set(drift_value)
+
+    return drift_value
+```
+
+FastAPI metrics refresh:
+
+```python
+@app.middleware("http")
+async def refresh_drift_metric(request: Request, call_next):
+    if request.url.path == "/metrics":
+        config = load_config()
+        update_drift_metric(config.monitoring.drift_alert_path)
+
+    response = await call_next(request)
+
+    return response
+```
+
+Prometheus alert rule:
+
+```yaml
+groups:
+  - name: mlops-drift-alerts
+    rules:
+      - alert: ModelDriftDetected
+        expr: model_drift_detected == 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Model or data drift detected
+          description: Evidently drift monitoring reported drift_detected=true.
+```
+
+Tests:
+
+```python
+import json
+
+from mlops_lr.drift_metrics import read_drift_alert_status, update_drift_metric
+
+
+def test_read_drift_alert_status_returns_zero_when_missing(tmp_path):
+    alert_path = tmp_path / "missing_alert.json"
+
+    assert read_drift_alert_status(str(alert_path)) == 0.0
+
+
+def test_read_drift_alert_status_returns_one_for_alert(tmp_path):
+    alert_path = tmp_path / "drift_alert.json"
+    alert_path.write_text(
+        json.dumps(
+            {
+                "drift_detected": True,
+                "status": "alert",
+            }
+        )
+    )
+
+    assert read_drift_alert_status(str(alert_path)) == 1.0
+
+
+def test_read_drift_alert_status_returns_zero_for_ok(tmp_path):
+    alert_path = tmp_path / "drift_alert.json"
+    alert_path.write_text(
+        json.dumps(
+            {
+                "drift_detected": False,
+                "status": "ok",
+            }
+        )
+    )
+
+    assert read_drift_alert_status(str(alert_path)) == 0.0
+
+
+def test_update_drift_metric(tmp_path):
+    alert_path = tmp_path / "drift_alert.json"
+    alert_path.write_text(
+        json.dumps(
+            {
+                "drift_detected": True,
+                "status": "alert",
+            }
+        )
+    )
+
+    assert update_drift_metric(str(alert_path)) == 1.0
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+docker compose up -d --build api prometheus
+curl http://127.0.0.1:8000/metrics | grep model_drift_detected
+```
+
+Check Prometheus:
+
+```text
+http://127.0.0.1:9090
+```
+
+Query:
+
+```promql
+model_drift_detected
+```
+
+Check alerts:
+
+```text
+http://127.0.0.1:9090/alerts
+```

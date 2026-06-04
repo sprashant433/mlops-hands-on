@@ -27,6 +27,7 @@ serving:
 
 monitoring:
   prediction_log_path: data/predictions.csv
+  drift_alert_path: reports/drift_alert.json
 
 tuning:
   max_evals: 10

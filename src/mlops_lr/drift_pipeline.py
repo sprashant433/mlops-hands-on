@@ -8,6 +8,7 @@ from mlops_lr.prediction_drift import (
     compute_prediction_statistics,
     save_prediction_statistics,
 )
+from mlops_lr.drift_alerts import evaluate_drift_alert
 
 
 def run_drift_monitoring_pipeline() -> None:
@@ -45,3 +46,7 @@ def run_drift_monitoring_pipeline() -> None:
 
 if __name__ == "__main__":
     run_drift_monitoring_pipeline()
+    evaluate_drift_alert(
+        report_path="reports/data_drift.json",
+        output_path="reports/drift_alert.json",
+    )
