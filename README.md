@@ -3168,25 +3168,6 @@ v1.0-monitoring
 
 Added OpenTelemetry dependencies for distributed tracing.
 
-Dependencies:
-
-```text
-opentelemetry-api
-opentelemetry-sdk
-opentelemetry-instrumentation-fastapi
-opentelemetry-exporter-otlp
-```
-
-Install:
-
-```bash
-pip install -r requirements.txt
-```
-
-### Step 71: Add OpenTelemetry Dependencies
-
-Added OpenTelemetry dependencies for distributed tracing.
-
 OpenTelemetry will be used to trace FastAPI requests and send spans to an observability backend.
 
 Dependencies:
@@ -3241,7 +3222,7 @@ Tracing service name:
 mlops-logistic-regression-api
 ```
 
-Tracing module:
+Implementation:
 
 ```python
 from opentelemetry import trace
@@ -3273,10 +3254,28 @@ def configure_tracing(app) -> None:
     FastAPIInstrumentor.instrument_app(app)
 ```
 
-FastAPI integration:
+Tests:
 
 ```python
-configure_tracing(app)
+from fastapi import FastAPI
+
+from mlops_lr.tracing import configure_tracing
+
+
+def test_configure_tracing():
+    app = FastAPI()
+
+    configure_tracing(app)
+
+    assert app is not None
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
 ```
 
 ### Step 73: Add OpenTelemetry Collector Config
