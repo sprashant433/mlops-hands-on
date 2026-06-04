@@ -5334,3 +5334,219 @@ PYTHONPATH=src pytest
 PYTHONPATH=src python -c "from mlops_lr.monitoring_dataset import create_reference_monitoring_dataset; create_reference_monitoring_dataset('data/processed.csv', 'data/reference_monitoring.csv')"
 head data/reference_monitoring.csv
 ```
+
+### Step 91: Generate Evidently Data Drift Report
+
+Added Evidently data drift report generation.
+
+The data drift report flow is:
+
+```text
+reference monitoring data
+→ current prediction input data
+→ Evidently DataDriftPreset
+→ HTML drift report
+→ JSON drift report
+```
+
+Implementation:
+
+```python
+from pathlib import Path
+
+import pandas as pd
+from evidently import Report
+from evidently.presets import DataDriftPreset
+
+
+FEATURE_COLUMNS = [
+    "age",
+    "income",
+    "loan_amount",
+    "credit_score",
+    "employment_years",
+    "debt_to_income",
+]
+
+
+def load_drift_data(
+    reference_path: str,
+    current_path: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    reference_data = pd.read_csv(reference_path)
+    current_data = pd.read_csv(current_path)
+
+    missing_reference_columns = [
+        column for column in FEATURE_COLUMNS if column not in reference_data.columns
+    ]
+    missing_current_columns = [
+        column for column in FEATURE_COLUMNS if column not in current_data.columns
+    ]
+
+    if missing_reference_columns:
+        raise ValueError(f"Missing reference columns: {missing_reference_columns}")
+
+    if missing_current_columns:
+        raise ValueError(f"Missing current columns: {missing_current_columns}")
+
+    return (
+        reference_data[FEATURE_COLUMNS].copy(),
+        current_data[FEATURE_COLUMNS].copy(),
+    )
+
+
+def generate_data_drift_report(
+    reference_path: str,
+    current_path: str,
+    html_output_path: str,
+    json_output_path: str,
+) -> None:
+    reference_data, current_data = load_drift_data(
+        reference_path=reference_path,
+        current_path=current_path,
+    )
+
+    report = Report([DataDriftPreset()])
+    snapshot = report.run(
+        reference_data=reference_data,
+        current_data=current_data,
+    )
+
+    html_path = Path(html_output_path)
+    json_path = Path(json_output_path)
+
+    html_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+
+    snapshot.save_html(str(html_path))
+    snapshot.save_json(str(json_path))
+```
+
+Tests:
+
+```python
+import pandas as pd
+import pytest
+
+from mlops_lr.evidently_drift import (
+    FEATURE_COLUMNS,
+    generate_data_drift_report,
+    load_drift_data,
+)
+
+
+def test_load_drift_data(tmp_path):
+    reference_path = tmp_path / "reference.csv"
+    current_path = tmp_path / "current.csv"
+
+    data = pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+                "loan_amount": 25000,
+                "credit_score": 700,
+                "employment_years": 5,
+                "debt_to_income": 0.3,
+                "extra_column": "ignored",
+            }
+        ]
+    )
+
+    data.to_csv(reference_path, index=False)
+    data.to_csv(current_path, index=False)
+
+    reference_data, current_data = load_drift_data(
+        reference_path=str(reference_path),
+        current_path=str(current_path),
+    )
+
+    assert list(reference_data.columns) == FEATURE_COLUMNS
+    assert list(current_data.columns) == FEATURE_COLUMNS
+
+
+def test_load_drift_data_fails_for_missing_current_columns(tmp_path):
+    reference_path = tmp_path / "reference.csv"
+    current_path = tmp_path / "current.csv"
+
+    reference = pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+                "loan_amount": 25000,
+                "credit_score": 700,
+                "employment_years": 5,
+                "debt_to_income": 0.3,
+            }
+        ]
+    )
+    current = pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+            }
+        ]
+    )
+
+    reference.to_csv(reference_path, index=False)
+    current.to_csv(current_path, index=False)
+
+    with pytest.raises(ValueError, match="Missing current columns"):
+        load_drift_data(
+            reference_path=str(reference_path),
+            current_path=str(current_path),
+        )
+
+
+def test_generate_data_drift_report(tmp_path):
+    reference_path = tmp_path / "reference.csv"
+    current_path = tmp_path / "current.csv"
+    html_output_path = tmp_path / "data_drift.html"
+    json_output_path = tmp_path / "data_drift.json"
+
+    data = pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+                "loan_amount": 25000,
+                "credit_score": 700,
+                "employment_years": 5,
+                "debt_to_income": 0.3,
+            },
+            {
+                "age": 45,
+                "income": 95000,
+                "loan_amount": 30000,
+                "credit_score": 720,
+                "employment_years": 10,
+                "debt_to_income": 0.2,
+            },
+        ]
+    )
+
+    data.to_csv(reference_path, index=False)
+    data.to_csv(current_path, index=False)
+
+    generate_data_drift_report(
+        reference_path=str(reference_path),
+        current_path=str(current_path),
+        html_output_path=str(html_output_path),
+        json_output_path=str(json_output_path),
+    )
+
+    assert html_output_path.exists()
+    assert json_output_path.exists()
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.evidently_drift import generate_data_drift_report; generate_data_drift_report('data/reference_monitoring.csv', 'data/predictions.csv', 'reports/data_drift.html', 'reports/data_drift.json')"
+ls reports
+```
