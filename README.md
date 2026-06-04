@@ -2100,6 +2100,7 @@ This service:
 
 - configures MLflow
 - loads the configured model from MLflow Registry
+- falls back to local `mlruns` artifacts when Docker sees host-specific MLflow paths
 - checks readiness
 - performs prediction
 - returns prediction and probability
@@ -2113,11 +2114,13 @@ models:/LoanApprovalModel/Production
 Implementation:
 
 ```python
+from pathlib import Path
+
 import mlflow.pyfunc
 import pandas as pd
 
 from mlops_lr.config import load_config
-from mlops_lr.mlflow_utils import configure_mlflow
+from mlops_lr.mlflow_utils import configure_mlflow, get_mlflow_client
 from mlops_lr.schemas import PredictionRequest
 
 
@@ -2132,7 +2135,43 @@ class ModelService:
             f"models:/{self.config.mlflow.registered_model_name}"
             f"/{self.config.serving.model_stage}"
         )
-        self.model = mlflow.pyfunc.load_model(model_uri)
+
+        try:
+            self.model = mlflow.pyfunc.load_model(model_uri)
+        except OSError:
+            self.model = mlflow.pyfunc.load_model(self._resolve_local_model_path())
+
+    def _resolve_local_model_path(self) -> str:
+        client = get_mlflow_client()
+        model_versions = client.search_model_versions(
+            f"name='{self.config.mlflow.registered_model_name}'"
+        )
+
+        matching_versions = [
+            version
+            for version in model_versions
+            if version.current_stage == self.config.serving.model_stage
+        ]
+
+        if not matching_versions:
+            raise ValueError(
+                "No model version found for "
+                f"{self.config.mlflow.registered_model_name} "
+                f"at stage {self.config.serving.model_stage}"
+            )
+
+        latest_version = max(matching_versions, key=lambda version: int(version.version))
+        model_id = latest_version.source.replace("models:/", "")
+        tracking_path = Path(
+            self.config.mlflow.tracking_uri.replace("file:", "", 1)
+        ).resolve()
+
+        matches = list(tracking_path.glob(f"*/models/{model_id}/artifacts"))
+
+        if not matches:
+            raise FileNotFoundError(f"Local model artifacts not found for: {model_id}")
+
+        return str(matches[0])
 
     def is_ready(self) -> bool:
         return self.model is not None
@@ -2162,6 +2201,14 @@ black src tests
 flake8 src tests
 PYTHONPATH=src pytest
 ```
+
+Docker note:
+
+MLflow model versions can store absolute artifact paths from the machine where the
+model was registered. In Docker, the registry metadata may still point to the Mac
+path, while the mounted artifacts live under `/app/mlruns`. The local fallback
+uses the model ID from the registry version and resolves the matching artifact
+folder inside the container's configured tracking directory.
 
 ### Step 45: Create FastAPI App
 
@@ -3087,4 +3134,1146 @@ Check:
 
 ```text
 Dashboards → MLOps → MLOps API Monitoring
+```
+
+### Step 70: Tag Monitoring Milestone
+
+Merged the monitoring work into `main` and tagged the Phase 11 milestone.
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: monitoring into main"
+git tag v1.0-monitoring
+git checkout develop
+```
+
+Verification:
+
+```bash
+git log --oneline --graph --decorate --all --max-count=60
+git tag
+```
+
+Created tag:
+
+```text
+v1.0-monitoring
+```
+
+## Phase 12: OpenTelemetry
+
+### Step 71: Add OpenTelemetry Dependencies
+
+Added OpenTelemetry dependencies for distributed tracing.
+
+Dependencies:
+
+```text
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+opentelemetry-exporter-otlp
+```
+
+Install:
+
+```bash
+pip install -r requirements.txt
+```
+
+### Step 72: Add OpenTelemetry Tracing Module
+
+Added OpenTelemetry tracing support for FastAPI.
+
+Tracing service name:
+
+```text
+mlops-logistic-regression-api
+```
+
+Tracing module:
+
+```python
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+
+def configure_tracing(app) -> None:
+    resource = Resource.create(
+        {
+            "service.name": "mlops-logistic-regression-api",
+        }
+    )
+
+    provider = TracerProvider(resource=resource)
+    processor = BatchSpanProcessor(
+        OTLPSpanExporter(
+            endpoint="http://otel-collector:4317",
+            insecure=True,
+        )
+    )
+
+    provider.add_span_processor(processor)
+    trace.set_tracer_provider(provider)
+
+    FastAPIInstrumentor.instrument_app(app)
+```
+
+FastAPI integration:
+
+```python
+configure_tracing(app)
+```
+
+### Step 73: Add OpenTelemetry Collector Config
+
+Added OpenTelemetry Collector and Jaeger for distributed tracing.
+
+Collector config:
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger]
+```
+
+Docker Compose services:
+
+```yaml
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: mlops-otel-collector
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./monitoring/otel-collector-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: mlops-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"
+      - "14250:14250"
+```
+
+Open Jaeger:
+
+```text
+http://127.0.0.1:16686
+```
+
+Search service:
+
+```text
+mlops-logistic-regression-api
+```
+
+### Step 74: Add Trace IDs to API Responses
+
+Added trace context to API responses for easier correlation with Jaeger.
+
+Helper:
+
+```python
+from opentelemetry import trace
+
+
+def get_current_trace_context() -> dict[str, str]:
+    span = trace.get_current_span()
+    span_context = span.get_span_context()
+
+    return {
+        "trace_id": format(span_context.trace_id, "032x"),
+        "span_id": format(span_context.span_id, "016x"),
+    }
+```
+
+Example response:
+
+```json
+{
+  "status": "ok",
+  "trace_id": "...",
+  "span_id": "..."
+}
+```
+
+Use the `trace_id` to search traces in Jaeger.
+
+### Step 75: Add Manual Spans Around Prediction
+
+Added a custom OpenTelemetry span around model prediction.
+
+Span name:
+
+```text
+model_prediction
+```
+
+Span attributes:
+
+```text
+model.name
+model.stage
+request.credit_score
+request.debt_to_income
+prediction.loan_approved
+prediction.probability
+```
+
+Implementation:
+
+```python
+tracer = trace.get_tracer(__name__)
+
+with tracer.start_as_current_span("model_prediction") as span:
+    config = load_config()
+
+    span.set_attribute("model.name", config.mlflow.registered_model_name)
+    span.set_attribute("model.stage", config.serving.model_stage)
+    span.set_attribute("request.credit_score", request.credit_score)
+    span.set_attribute("request.debt_to_income", request.debt_to_income)
+
+    prediction, probability = model_service.predict(request)
+
+    span.set_attribute("prediction.loan_approved", prediction)
+    span.set_attribute("prediction.probability", probability)
+```
+
+Check in Jaeger:
+
+```text
+Service → mlops-logistic-regression-api → operation → model_prediction
+```
+
+### Step 76: Add Structured JSON Logging
+
+Phase 13 starts with application logs.
+
+Goal:
+
+```text
+Human-readable message + machine-readable JSON fields
+```
+
+Create:
+
+```text
+src/mlops_lr/json_logging.py
+```
+
+Implementation:
+
+```python
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Any
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        log_record: dict[str, Any] = {
+            "timestamp": datetime.fromtimestamp(
+                record.created,
+                tz=timezone.utc,
+            ).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+
+        if record.exc_info:
+            log_record["exception"] = self.formatException(record.exc_info)
+
+        extra_fields = {
+            key: value
+            for key, value in record.__dict__.items()
+            if key
+            not in {
+                "name",
+                "msg",
+                "args",
+                "levelname",
+                "levelno",
+                "pathname",
+                "filename",
+                "module",
+                "exc_info",
+                "exc_text",
+                "stack_info",
+                "lineno",
+                "funcName",
+                "created",
+                "msecs",
+                "relativeCreated",
+                "thread",
+                "threadName",
+                "processName",
+                "process",
+                "taskName",
+            }
+        }
+
+        log_record.update(extra_fields)
+
+        return json.dumps(log_record, default=str)
+
+
+def configure_json_logging(level: int = logging.INFO) -> None:
+    handler = logging.StreamHandler()
+    handler.setFormatter(JsonFormatter())
+
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.addHandler(handler)
+    root_logger.setLevel(level)
+```
+
+Update `src/mlops_lr/api.py`:
+
+```python
+import logging
+
+from mlops_lr.json_logging import configure_json_logging
+
+configure_json_logging()
+logger = logging.getLogger(__name__)
+```
+
+Inside `/predict`, log success:
+
+```python
+logger.info(
+    "prediction_completed",
+    extra={
+        "loan_approved": prediction,
+        "probability": probability,
+        "credit_score": request.credit_score,
+        "debt_to_income": request.debt_to_income,
+        **get_current_trace_context(),
+    },
+)
+```
+
+Inside the exception block, log failure:
+
+```python
+logger.exception(
+    "prediction_failed",
+    extra={
+        "credit_score": request.credit_score,
+        "debt_to_income": request.debt_to_income,
+        **get_current_trace_context(),
+    },
+)
+```
+
+Add test:
+
+```text
+tests/test_json_logging.py
+```
+
+Implementation:
+
+```python
+import json
+import logging
+
+from mlops_lr.json_logging import JsonFormatter
+
+
+def test_json_formatter_outputs_valid_json():
+    formatter = JsonFormatter()
+    record = logging.LogRecord(
+        name="mlops_lr.test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=10,
+        msg="prediction_completed",
+        args=(),
+        exc_info=None,
+    )
+    record.trace_id = "abc123"
+    record.loan_approved = 1
+
+    output = formatter.format(record)
+    payload = json.loads(output)
+
+    assert payload["level"] == "INFO"
+    assert payload["logger"] == "mlops_lr.test"
+    assert payload["message"] == "prediction_completed"
+    assert payload["trace_id"] == "abc123"
+    assert payload["loan_approved"] == 1
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+Test JSON logs from Docker:
+
+```bash
+docker compose up -d --build api
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+docker logs mlops-logistic-regression-api --tail 20
+```
+
+Expected log shape:
+
+```json
+{
+  "timestamp": "...",
+  "level": "INFO",
+  "logger": "mlops_lr.api",
+  "message": "prediction_completed",
+  "loan_approved": 1,
+  "probability": 0.91,
+  "credit_score": 700,
+  "debt_to_income": 0.3,
+  "trace_id": "...",
+  "span_id": "..."
+}
+```
+
+### Step 77: Add Loki and Promtail
+
+Added centralized log collection using Loki and Promtail.
+
+Log flow:
+
+```text
+FastAPI JSON logs
+    ↓
+Docker logs
+    ↓
+Promtail
+    ↓
+Loki
+    ↓
+Grafana
+```
+
+Promtail config:
+
+```yaml
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        target_label: "container"
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: "stream"
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label: "compose_service"
+```
+
+Docker Compose services:
+
+```yaml
+  loki:
+    image: grafana/loki:latest
+    container_name: mlops-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: mlops-promtail
+    volumes:
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+```
+
+Grafana Loki datasource:
+
+```yaml
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+```
+
+Run:
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+Generate logs:
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+```
+
+Open Grafana:
+
+```text
+http://127.0.0.1:3000
+```
+
+Explore logs:
+
+```text
+Explore → Loki
+```
+
+Query:
+
+```logql
+{job="docker"}|= "prediction_completed"
+```
+
+### Step 78: Add Log Correlation IDs
+
+Added request correlation IDs to API responses and structured logs.
+
+A request ID helps connect one request across API response headers, JSON logs, Loki, and Jaeger.
+
+Request ID middleware:
+
+```python
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    request_id = request.headers.get("x-request-id", str(uuid4()))
+    request.state.request_id = request_id
+
+    response = await call_next(request)
+    response.headers["x-request-id"] = request_id
+
+    return response
+```
+
+Prediction endpoint now uses separate names for the request body and HTTP request:
+
+```python
+@app.post("/predict", response_model=PredictionResponse)
+def predict(payload: PredictionRequest, http_request: Request) -> PredictionResponse:
+    PREDICTION_COUNT.inc()
+    request_id = http_request.state.request_id
+```
+
+Prediction success log:
+
+```python
+logger.info(
+    "prediction_completed",
+    extra={
+        "request_id": request_id,
+        "loan_approved": prediction,
+        "probability": probability,
+        "credit_score": payload.credit_score,
+        "debt_to_income": payload.debt_to_income,
+        **get_current_trace_context(),
+    },
+)
+```
+
+Prediction failure log:
+
+```python
+logger.exception(
+    "prediction_failed",
+    extra={
+        "request_id": request_id,
+        "credit_score": payload.credit_score,
+        "debt_to_income": payload.debt_to_income,
+        **get_current_trace_context(),
+    },
+)
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+Rebuild API:
+
+```bash
+docker compose up -d --build api
+```
+
+Test with custom request ID:
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -H "x-request-id: test-request-123" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+```
+
+Expected response header:
+
+```text
+x-request-id: test-request-123
+```
+
+Check Docker logs:
+
+```bash
+docker logs mlops-logistic-regression-api --tail 20
+```
+
+Expected log field:
+
+```json
+"request_id": "test-request-123"
+```
+
+Search in Grafana Loki:
+
+```logql
+{compose_service="api"} |= "test-request-123"
+```
+
+### Step 79: Add Loki Log Dashboard Panel
+
+Added a Loki logs panel to the existing Grafana API dashboard.
+
+This panel shows prediction logs generated by the FastAPI service and collected through Loki.
+
+Log flow:
+
+```text
+FastAPI JSON logs
+    ↓
+Docker logs
+    ↓
+Promtail
+    ↓
+Loki
+    ↓
+Grafana dashboard
+```
+
+Files updated:
+
+```text
+monitoring/grafana/dashboards/mlops-api-dashboard.json
+README.md
+```
+
+Dashboard file:
+
+```text
+monitoring/grafana/dashboards/mlops-api-dashboard.json
+```
+
+Existing last panel before this step:
+
+```json
+{
+  "type": "timeseries",
+  "title": "Prediction Probability",
+  "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+  "targets": [
+    {
+      "expr": "histogram_quantile(0.95, rate(prediction_probability_bucket[5m]))",
+      "legendFormat": "p95 probability",
+      "refId": "A"
+    }
+  ]
+}
+```
+
+Added a comma after the last panel and appended this logs panel inside the top-level `panels` array:
+
+```json
+{
+  "type": "logs",
+  "title": "API Prediction Logs",
+  "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+  "datasource": {
+    "type": "loki",
+    "uid": "Loki"
+  },
+  "targets": [
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "Loki"
+      },
+      "expr": "{job=\"docker\"} |= \"prediction_completed\"",
+      "queryType": "range",
+      "refId": "A"
+    }
+  ],
+  "options": {
+    "showTime": true,
+    "showLabels": true,
+    "showCommonLabels": false,
+    "wrapLogMessage": true,
+    "prettifyLogMessage": true,
+    "enableLogDetails": true,
+    "sortOrder": "Descending",
+    "dedupStrategy": "none"
+  }
+}
+```
+
+The end of the dashboard JSON should look like this:
+
+```json
+    {
+      "type": "timeseries",
+      "title": "Prediction Probability",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(prediction_probability_bucket[5m]))",
+          "legendFormat": "p95 probability",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "API Prediction Logs",
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+      "datasource": {
+        "type": "loki",
+        "uid": "Loki"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "expr": "{job=\"docker\"} |= \"prediction_completed\"",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    }
+  ]
+}
+```
+
+Panel query:
+
+```logql
+{job="docker"} |= "prediction_completed"
+```
+
+Why this query is used:
+
+```text
+Promtail currently labels Docker logs with job="docker".
+```
+
+The active Promtail config uses:
+
+```yaml
+labels:
+  job: docker
+  __path__: /var/lib/docker/containers/*/*-json.log
+```
+
+So do not use this query unless Promtail is changed to create `compose_service` labels:
+
+```logql
+{compose_service="api"} |= "prediction_completed"
+```
+
+Validate dashboard JSON:
+
+```bash
+python -m json.tool monitoring/grafana/dashboards/mlops-api-dashboard.json > /tmp/mlops-dashboard.json
+```
+
+Restart Grafana so it reloads the dashboard:
+
+```bash
+docker compose restart grafana
+```
+
+Check Grafana logs:
+
+```bash
+docker logs mlops-grafana --tail 50
+```
+
+Generate a fresh prediction log:
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -H "x-request-id: dashboard-test-123" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+```
+
+Check Loki directly in Grafana Explore:
+
+```text
+Grafana → Explore → Loki
+```
+
+Use this query:
+
+```logql
+{job="docker"} |= "dashboard-test-123"
+```
+
+Open the dashboard:
+
+```text
+Grafana → Dashboards → MLOps API Monitoring
+```
+
+Set time range:
+
+```text
+Last 15 minutes
+```
+
+Expected dashboard panel:
+
+```text
+API Prediction Logs
+```
+
+Expected result:
+
+```text
+The API Prediction Logs panel shows prediction_completed log lines.
+```
+
+If the panel is empty:
+
+```text
+1. Confirm the API generated a log.
+2. Confirm Loki has the log in Explore.
+3. Confirm the dashboard query uses {job="docker"}.
+4. Confirm the Grafana time range includes the log time.
+5. Restart Grafana after dashboard JSON changes.
+```
+
+Check API logs:
+
+```bash
+docker logs mlops-logistic-regression-api --tail 20
+```
+
+Check Loki labels:
+
+```bash
+curl http://127.0.0.1:3100/loki/api/v1/labels
+```
+
+Expected Loki labels include:
+
+```text
+job
+filename
+service_name
+```
+
+Commit changes:
+
+```bash
+git add .
+git commit -m "feat: add loki logs dashboard panel"
+```
+
+### Step 80: Add Locust Load Testing
+
+Added Locust for load testing the FastAPI inference service.
+
+This step simulates multiple users calling the API so we can observe API behavior under load.
+
+Load testing flow:
+
+```text
+Locust
+    ↓
+FastAPI /predict
+    ↓
+Prometheus metrics
+    ↓
+Grafana dashboard
+    ↓
+Loki logs
+```
+
+Files created or updated:
+
+```text
+locustfile.py
+requirements.txt
+README.md
+```
+
+Added dependency:
+
+```text
+locust
+```
+
+Created load test file:
+
+```text
+locustfile.py
+```
+
+Implementation:
+
+```python
+from locust import HttpUser, between, task
+
+
+class LoanApprovalUser(HttpUser):
+    wait_time = between(1, 3)
+
+    @task(3)
+    def predict(self):
+        payload = {
+            "age": 35,
+            "income": 75000,
+            "loan_amount": 25000,
+            "credit_score": 700,
+            "employment_years": 5,
+            "debt_to_income": 0.3,
+        }
+
+        self.client.post(
+            "/predict",
+            json=payload,
+            headers={"x-request-id": "locust-load-test"},
+        )
+
+    @task(1)
+    def health(self):
+        self.client.get("/health")
+```
+
+Task behavior:
+
+```text
+predict runs more frequently than health
+health confirms API availability
+wait_time simulates user think time
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Start the local stack:
+
+```bash
+docker compose up -d
+```
+
+Run Locust UI:
+
+```bash
+locust -f locustfile.py --host http://127.0.0.1:8000
+```
+
+Open Locust:
+
+```text
+2
+```
+
+Start with:
+
+```text
+Number of users: 10
+Spawn rate: 2
+Host: http://127.0.0.1:8000
+```
+
+Headless smoke load test:
+
+```bash
+locust -f locustfile.py \
+  --host http://127.0.0.1:8000 \
+  --users 10 \
+  --spawn-rate 2 \
+  --run-time 1m \
+  --headless
+```
+
+Watch Grafana:
+
+```text
+Grafana → Dashboards → MLOps API Monitoring
+```
+
+Watch Loki logs:
+
+```text
+Grafana → Explore → Loki
+```
+
+Useful Loki query:
+
+```logql
+{job="docker"} |= "locust-load-test"
+```
+
+Useful Prometheus queries:
+
+```promql
+rate(prediction_requests_total[1m])
+```
+
+```promql
+rate(prediction_errors_total[1m])
+```
+
+```promql
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+```
+
+Expected result:
+
+```text
+Locust shows successful requests.
+Grafana request rate increases.
+Grafana latency panels update.
+Loki shows locust-load-test request logs.
+```
+
+If Locust cannot connect:
+
+```text
+1. Confirm API is running on port 8000.
+2. Run docker compose ps.
+3. Open http://127.0.0.1:8000/health.
+4. Confirm Locust host is http://127.0.0.1:8000.
+```
+
+Added test:
+
+```text
+tests/test_locustfile.py
+```
+
+Test implementation:
+
+```python
+from locustfile import LoanApprovalUser
+
+
+def test_loan_approval_user_has_tasks():
+    tasks = LoanApprovalUser.tasks
+
+    assert len(tasks) > 0
+```
+
+This test verifies that the Locust user class imports correctly and has registered tasks.
+
+Commit changes:
+
+```bash
+git add .
+git commit -m "feat: add locust load testing"
 ```

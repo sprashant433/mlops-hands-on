@@ -10,7 +10,11 @@ def test_health():
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+
+    assert body["status"] == "ok"
+    assert "trace_id" in body
+    assert "span_id" in body
 
 
 def test_ready():
@@ -24,7 +28,11 @@ def test_model_info():
     response = client.get("/model-info")
 
     assert response.status_code == 200
-    assert response.json()["model_name"] == "LoanApprovalModel"
+    body = response.json()
+
+    assert body["model_name"] == "LoanApprovalModel"
+    assert "trace_id" in body
+    assert "span_id" in body
 
 
 def test_predict(monkeypatch):
