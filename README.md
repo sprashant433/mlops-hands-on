@@ -4078,3 +4078,182 @@ Commit changes:
 git add .
 git commit -m "feat: add loki logs dashboard panel"
 ```
+
+### Step 80: Add Locust Load Testing
+
+Added Locust for load testing the FastAPI inference service.
+
+This step simulates multiple users calling the API so we can observe API behavior under load.
+
+Load testing flow:
+
+```text
+Locust
+    ↓
+FastAPI /predict
+    ↓
+Prometheus metrics
+    ↓
+Grafana dashboard
+    ↓
+Loki logs
+```
+
+Files created or updated:
+
+```text
+locustfile.py
+requirements.txt
+README.md
+```
+
+Added dependency:
+
+```text
+locust
+```
+
+Created load test file:
+
+```text
+locustfile.py
+```
+
+Implementation:
+
+```python
+from locust import HttpUser, between, task
+
+
+class LoanApprovalUser(HttpUser):
+    wait_time = between(1, 3)
+
+    @task(3)
+    def predict(self):
+        payload = {
+            "age": 35,
+            "income": 75000,
+            "loan_amount": 25000,
+            "credit_score": 700,
+            "employment_years": 5,
+            "debt_to_income": 0.3,
+        }
+
+        self.client.post(
+            "/predict",
+            json=payload,
+            headers={"x-request-id": "locust-load-test"},
+        )
+
+    @task(1)
+    def health(self):
+        self.client.get("/health")
+```
+
+Task behavior:
+
+```text
+predict runs more frequently than health
+health confirms API availability
+wait_time simulates user think time
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Start the local stack:
+
+```bash
+docker compose up -d
+```
+
+Run Locust UI:
+
+```bash
+locust -f locustfile.py --host http://127.0.0.1:8000
+```
+
+Open Locust:
+
+```text
+http://127.0.0.1:8089
+```
+
+Start with:
+
+```text
+Number of users: 10
+Spawn rate: 2
+Host: http://127.0.0.1:8000
+```
+
+Headless smoke load test:
+
+```bash
+locust -f locustfile.py \
+  --host http://127.0.0.1:8000 \
+  --users 10 \
+  --spawn-rate 2 \
+  --run-time 1m \
+  --headless
+```
+
+Watch Grafana:
+
+```text
+Grafana → Dashboards → MLOps API Monitoring
+```
+
+Watch Loki logs:
+
+```text
+Grafana → Explore → Loki
+```
+
+Useful Loki query:
+
+```logql
+{job="docker"} |= "locust-load-test"
+```
+
+Useful Prometheus queries:
+
+```promql
+rate(prediction_requests_total[1m])
+```
+
+```promql
+rate(prediction_errors_total[1m])
+```
+
+```promql
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+```
+
+Expected result:
+
+```text
+Locust shows successful requests.
+Grafana request rate increases.
+Grafana latency panels update.
+Loki shows locust-load-test request logs.
+```
+
+If Locust cannot connect:
+
+```text
+1. Confirm API is running on port 8000.
+2. Run docker compose ps.
+3. Open http://127.0.0.1:8000/health.
+4. Confirm Locust host is http://127.0.0.1:8000.
+```
+
+Commit changes:
+
+```bash
+git add .
+git commit -m "feat: add locust load testing"
+```
