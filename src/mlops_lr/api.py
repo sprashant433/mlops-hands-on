@@ -89,47 +89,26 @@ def model_info() -> dict[str, str]:
 
 
 @app.post("/predict", response_model=PredictionResponse)
-def predict(payload: PredictionRequest, http_request: Request) -> PredictionResponse:
+def predict(request: PredictionRequest) -> PredictionResponse:
     PREDICTION_COUNT.inc()
-    request_id = http_request.state.request_id
 
     try:
         with tracer.start_as_current_span("model_prediction") as span:
             config = load_config()
+
             span.set_attribute("model.name", config.mlflow.registered_model_name)
             span.set_attribute("model.stage", config.serving.model_stage)
-            span.set_attribute("request.credit_score", payload.credit_score)
-            span.set_attribute("request.debt_to_income", payload.debt_to_income)
+            span.set_attribute("request.credit_score", request.credit_score)
+            span.set_attribute("request.debt_to_income", request.debt_to_income)
 
-            prediction, probability = model_service.predict(payload)
+            prediction, probability = model_service.predict(request)
 
             span.set_attribute("prediction.loan_approved", prediction)
             span.set_attribute("prediction.probability", probability)
 
             PREDICTION_PROBABILITY.observe(probability)
-
-            logger.info(
-                "prediction_completed",
-                extra={
-                    "request_id": request_id,
-                    "loan_approved": prediction,
-                    "probability": probability,
-                    "credit_score": payload.credit_score,
-                    "debt_to_income": payload.debt_to_income,
-                    **get_current_trace_context(),
-                },
-            )
     except Exception as error:
         PREDICTION_ERRORS.inc()
-        logger.exception(
-            "prediction_failed",
-            extra={
-                "request_id": request_id,
-                "credit_score": payload.credit_score,
-                "debt_to_income": payload.debt_to_income,
-                **get_current_trace_context(),
-            },
-        )
         raise HTTPException(status_code=500, detail=str(error)) from error
 
     return PredictionResponse(

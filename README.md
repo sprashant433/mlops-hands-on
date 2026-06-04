@@ -3455,37 +3455,124 @@ Expected response:
 }
 ```
 
-### Step 74: Add Trace IDs to API Responses
+Use the `trace_id` to search traces in Jaeger.
 
-Added trace context to API responses for easier correlation with Jaeger.
+### Step 75: Add Manual Prediction Span
 
-Helper:
+Added a custom OpenTelemetry span around model prediction.
+
+Span name:
+
+```text
+model_prediction
+```
+
+Span attributes:
+
+```text
+model.name
+model.stage
+request.credit_score
+request.debt_to_income
+prediction.loan_approved
+prediction.probability
+```
+
+Implementation:
 
 ```python
-from opentelemetry import trace
+tracer = trace.get_tracer(__name__)
 
 
-def get_current_trace_context() -> dict[str, str]:
-    span = trace.get_current_span()
-    span_context = span.get_span_context()
+@app.post("/predict", response_model=PredictionResponse)
+def predict(request: PredictionRequest) -> PredictionResponse:
+    PREDICTION_COUNT.inc()
 
-    return {
-        "trace_id": format(span_context.trace_id, "032x"),
-        "span_id": format(span_context.span_id, "016x"),
+    try:
+        with tracer.start_as_current_span("model_prediction") as span:
+            config = load_config()
+
+            span.set_attribute("model.name", config.mlflow.registered_model_name)
+            span.set_attribute("model.stage", config.serving.model_stage)
+            span.set_attribute("request.credit_score", request.credit_score)
+            span.set_attribute("request.debt_to_income", request.debt_to_income)
+
+            prediction, probability = model_service.predict(request)
+
+            span.set_attribute("prediction.loan_approved", prediction)
+            span.set_attribute("prediction.probability", probability)
+
+            PREDICTION_PROBABILITY.observe(probability)
+    except Exception as error:
+        PREDICTION_ERRORS.inc()
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+    return PredictionResponse(
+        loan_approved=prediction,
+        probability=probability,
+    )
+```
+
+Tests:
+
+```python
+
+def test_predict(monkeypatch):
+    def fake_predict(request):
+        return 1, 0.82
+
+    monkeypatch.setattr(model_service, "predict", fake_predict)
+
+    response = client.post(
+        "/predict",
+        json={
+            "age": 35,
+            "income": 75000,
+            "loan_amount": 25000,
+            "credit_score": 700,
+            "employment_years": 5,
+            "debt_to_income": 0.3,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "loan_approved": 1,
+        "probability": 0.82,
     }
 ```
 
-Example response:
+Run:
 
-```json
-{
-  "status": "ok",
-  "trace_id": "...",
-  "span_id": "..."
-}
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+docker compose up -d --build api otel-collector jaeger
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
 ```
 
-Use the `trace_id` to search traces in Jaeger.
+Check Jaeger:
+
+```text
+http://127.0.0.1:16686
+```
+
+Search:
+
+```text
+service: mlops-logistic-regression-api
+operation: model_prediction
+```
 
 ### Step 75: Add Manual Spans Around Prediction
 
