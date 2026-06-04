@@ -4356,3 +4356,146 @@ Expected result:
 ```text
 Locust writes CSV reports under reports/load_tests.
 ```
+
+### Step 82: Add Load Test Summary Script
+
+Added a script to summarize Locust CSV output into a compact JSON report.
+
+The summary flow is:
+
+```text
+Locust CSV stats
+→ summary script
+→ JSON summary
+→ review load test result
+```
+
+Implementation:
+
+```python
+import argparse
+import json
+from pathlib import Path
+
+import pandas as pd
+
+
+def summarize_load_test(stats_path: str) -> dict[str, float]:
+    stats = pd.read_csv(stats_path)
+
+    aggregated = stats[stats["Name"] == "Aggregated"]
+
+    if aggregated.empty:
+        raise ValueError("Aggregated row not found in Locust stats file")
+
+    row = aggregated.iloc[0]
+
+    return {
+        "request_count": float(row["Request Count"]),
+        "failure_count": float(row["Failure Count"]),
+        "median_response_time_ms": float(row["Median Response Time"]),
+        "average_response_time_ms": float(row["Average Response Time"]),
+        "min_response_time_ms": float(row["Min Response Time"]),
+        "max_response_time_ms": float(row["Max Response Time"]),
+        "requests_per_second": float(row["Requests/s"]),
+        "failures_per_second": float(row["Failures/s"]),
+    }
+
+
+def save_summary(summary: dict[str, float], output_path: str) -> None:
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(summary, indent=2))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--stats-path", required=True)
+    parser.add_argument("--output-path", required=True)
+    args = parser.parse_args()
+
+    summary = summarize_load_test(args.stats_path)
+    save_summary(summary, args.output_path)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Tests:
+
+```python
+import json
+
+import pandas as pd
+
+from scripts.summarize_load_test import save_summary, summarize_load_test
+
+
+def test_summarize_load_test(tmp_path):
+    stats_path = tmp_path / "locust_stats.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "Type": "POST",
+                "Name": "/predict",
+                "Request Count": 10,
+                "Failure Count": 0,
+                "Median Response Time": 20,
+                "Average Response Time": 25,
+                "Min Response Time": 10,
+                "Max Response Time": 50,
+                "Requests/s": 2.5,
+                "Failures/s": 0.0,
+            },
+            {
+                "Type": "",
+                "Name": "Aggregated",
+                "Request Count": 20,
+                "Failure Count": 1,
+                "Median Response Time": 30,
+                "Average Response Time": 35,
+                "Min Response Time": 10,
+                "Max Response Time": 80,
+                "Requests/s": 4.0,
+                "Failures/s": 0.1,
+            },
+        ]
+    ).to_csv(stats_path, index=False)
+
+    summary = summarize_load_test(str(stats_path))
+
+    assert summary["request_count"] == 20
+    assert summary["failure_count"] == 1
+    assert summary["median_response_time_ms"] == 30
+    assert summary["average_response_time_ms"] == 35
+    assert summary["requests_per_second"] == 4.0
+    assert summary["failures_per_second"] == 0.1
+
+
+def test_save_summary(tmp_path):
+    output_path = tmp_path / "summary.json"
+    summary = {
+        "request_count": 20,
+        "failure_count": 1,
+    }
+
+    save_summary(summary, str(output_path))
+
+    saved = json.loads(output_path.read_text())
+
+    assert saved == summary
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+python scripts/summarize_load_test.py \
+  --stats-path reports/load_tests/locust_10_users_stats.csv \
+  --output-path reports/load_tests/locust_10_users_summary.json
+cat reports/load_tests/locust_10_users_summary.json
+```

@@ -1,0 +1,10 @@
+{
+  "request_count": 283.0,
+  "failure_count": 0.0,
+  "median_response_time_ms": 19.0,
+  "average_response_time_ms": 18.480289583038957,
+  "min_response_time_ms": 3.0367920000031745,
+  "max_response_time_ms": 73.95437500000001,
+  "requests_per_second": 4.783106005634161,
+  "failures_per_second": 0.0
+}
