@@ -19,3 +19,5 @@ opentelemetry-sdk
 opentelemetry-instrumentation-fastapi
 opentelemetry-exporter-otlp
 locust
+setuptools<81
+evidently==0.7.11

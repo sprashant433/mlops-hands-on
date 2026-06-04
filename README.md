@@ -3162,11 +3162,13 @@ Created tag:
 v1.0-monitoring
 ```
 
-## Phase 12: OpenTelemetry
+## Phase 12: Phase 12: OpenTelemetry / Tracing
 
 ### Step 71: Add OpenTelemetry Dependencies
 
 Added OpenTelemetry dependencies for distributed tracing.
+
+OpenTelemetry will be used to trace FastAPI requests and send spans to an observability backend.
 
 Dependencies:
 
@@ -3177,10 +3179,37 @@ opentelemetry-instrumentation-fastapi
 opentelemetry-exporter-otlp
 ```
 
-Install:
+Implementation:
+
+```text
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+opentelemetry-exporter-otlp
+```
+
+Tests:
+
+```python
+def test_opentelemetry_dependencies_import():
+    import opentelemetry.trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.sdk.trace import TracerProvider
+
+    assert opentelemetry.trace is not None
+    assert OTLPSpanExporter is not None
+    assert FastAPIInstrumentor is not None
+    assert TracerProvider is not None
+```
+
+Run:
 
 ```bash
 pip install -r requirements.txt
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
 ```
 
 ### Step 72: Add OpenTelemetry Tracing Module
@@ -3193,7 +3222,7 @@ Tracing service name:
 mlops-logistic-regression-api
 ```
 
-Tracing module:
+Implementation:
 
 ```python
 from opentelemetry import trace
@@ -3225,15 +3254,41 @@ def configure_tracing(app) -> None:
     FastAPIInstrumentor.instrument_app(app)
 ```
 
-FastAPI integration:
+Tests:
 
 ```python
-configure_tracing(app)
+from fastapi import FastAPI
+
+from mlops_lr.tracing import configure_tracing
+
+
+def test_configure_tracing():
+    app = FastAPI()
+
+    configure_tracing(app)
+
+    assert app is not None
 ```
 
-### Step 73: Add OpenTelemetry Collector Config
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 73: Add OpenTelemetry Collector and Jaeger
 
 Added OpenTelemetry Collector and Jaeger for distributed tracing.
+
+Tracing flow:
+
+```text
+FastAPI
+→ OpenTelemetry Collector
+→ Jaeger
+```
 
 Collector config:
 
@@ -3288,21 +3343,30 @@ Docker Compose services:
       - "14250:14250"
 ```
 
+Run:
+
+```bash
+docker compose up -d
+docker compose ps
+docker logs mlops-otel-collector --tail 50
+docker logs mlops-jaeger --tail 50
+```
+
 Open Jaeger:
 
 ```text
 http://127.0.0.1:16686
 ```
-
-Search service:
-
-```text
-mlops-logistic-regression-api
-```
-
 ### Step 74: Add Trace IDs to API Responses
 
 Added trace context to API responses for easier correlation with Jaeger.
+
+Trace context includes:
+
+```text
+trace_id
+span_id
+```
 
 Helper:
 
@@ -3320,7 +3384,68 @@ def get_current_trace_context() -> dict[str, str]:
     }
 ```
 
-Example response:
+Health endpoint:
+
+```python
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {
+        "status": "ok",
+        **get_current_trace_context(),
+    }
+```
+
+Model info endpoint:
+
+```python
+@app.get("/model-info")
+def model_info() -> dict[str, str]:
+    config = load_config()
+
+    return {
+        "model_name": config.mlflow.registered_model_name,
+        "model_stage": config.serving.model_stage,
+        **get_current_trace_context(),
+    }
+```
+
+Tests:
+
+```python
+def test_health():
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["status"] == "ok"
+    assert "trace_id" in body
+    assert "span_id" in body
+
+
+def test_model_info():
+    response = client.get("/model-info")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert "model_name" in body
+    assert "model_stage" in body
+    assert "trace_id" in body
+    assert "span_id" in body
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+docker compose up -d --build api
+curl http://127.0.0.1:8000/health
+```
+
+Expected response:
 
 ```json
 {
@@ -3332,7 +3457,7 @@ Example response:
 
 Use the `trace_id` to search traces in Jaeger.
 
-### Step 75: Add Manual Spans Around Prediction
+### Step 75: Add Manual Prediction Span
 
 Added a custom OpenTelemetry span around model prediction.
 
@@ -3358,40 +3483,109 @@ Implementation:
 ```python
 tracer = trace.get_tracer(__name__)
 
-with tracer.start_as_current_span("model_prediction") as span:
-    config = load_config()
 
-    span.set_attribute("model.name", config.mlflow.registered_model_name)
-    span.set_attribute("model.stage", config.serving.model_stage)
-    span.set_attribute("request.credit_score", request.credit_score)
-    span.set_attribute("request.debt_to_income", request.debt_to_income)
+@app.post("/predict", response_model=PredictionResponse)
+def predict(request: PredictionRequest) -> PredictionResponse:
+    PREDICTION_COUNT.inc()
 
-    prediction, probability = model_service.predict(request)
+    try:
+        with tracer.start_as_current_span("model_prediction") as span:
+            config = load_config()
 
-    span.set_attribute("prediction.loan_approved", prediction)
-    span.set_attribute("prediction.probability", probability)
+            span.set_attribute("model.name", config.mlflow.registered_model_name)
+            span.set_attribute("model.stage", config.serving.model_stage)
+            span.set_attribute("request.credit_score", request.credit_score)
+            span.set_attribute("request.debt_to_income", request.debt_to_income)
+
+            prediction, probability = model_service.predict(request)
+
+            span.set_attribute("prediction.loan_approved", prediction)
+            span.set_attribute("prediction.probability", probability)
+
+            PREDICTION_PROBABILITY.observe(probability)
+    except Exception as error:
+        PREDICTION_ERRORS.inc()
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+    return PredictionResponse(
+        loan_approved=prediction,
+        probability=probability,
+    )
 ```
 
-Check in Jaeger:
+Tests:
+
+```python
+
+def test_predict(monkeypatch):
+    def fake_predict(request):
+        return 1, 0.82
+
+    monkeypatch.setattr(model_service, "predict", fake_predict)
+
+    response = client.post(
+        "/predict",
+        json={
+            "age": 35,
+            "income": 75000,
+            "loan_amount": 25000,
+            "credit_score": 700,
+            "employment_years": 5,
+            "debt_to_income": 0.3,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "loan_approved": 1,
+        "probability": 0.82,
+    }
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+docker compose up -d --build api otel-collector jaeger
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+```
+
+Check Jaeger:
 
 ```text
-Service → mlops-logistic-regression-api → operation → model_prediction
+http://127.0.0.1:16686
 ```
+
+Search:
+
+```text
+service: mlops-logistic-regression-api
+operation: model_prediction
+```
+## Phase 13: Logging / Log Aggregation
 
 ### Step 76: Add Structured JSON Logging
 
-Phase 13 starts with application logs.
+Added structured JSON logging for FastAPI prediction events.
 
-Goal:
-
-```text
-Human-readable message + machine-readable JSON fields
-```
-
-Create:
+The logging flow is:
 
 ```text
-src/mlops_lr/json_logging.py
+API prediction
+→ JSON log line
+→ Docker logs
+→ Loki collection later
 ```
 
 Implementation:
@@ -3403,9 +3597,33 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+STANDARD_LOG_FIELDS = {
+    "name",
+    "msg",
+    "args",
+    "levelname",
+    "levelno",
+    "pathname",
+    "filename",
+    "module",
+    "exc_info",
+    "exc_text",
+    "stack_info",
+    "lineno",
+    "funcName",
+    "created",
+    "msecs",
+    "relativeCreated",
+    "thread",
+    "threadName",
+    "processName",
+    "process",
+}
+
+
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        log_record: dict[str, Any] = {
+        payload: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(
                 record.created,
                 tz=timezone.utc,
@@ -3415,41 +3633,18 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        if record.exc_info:
-            log_record["exception"] = self.formatException(record.exc_info)
-
         extra_fields = {
             key: value
             for key, value in record.__dict__.items()
-            if key
-            not in {
-                "name",
-                "msg",
-                "args",
-                "levelname",
-                "levelno",
-                "pathname",
-                "filename",
-                "module",
-                "exc_info",
-                "exc_text",
-                "stack_info",
-                "lineno",
-                "funcName",
-                "created",
-                "msecs",
-                "relativeCreated",
-                "thread",
-                "threadName",
-                "processName",
-                "process",
-                "taskName",
-            }
+            if key not in STANDARD_LOG_FIELDS
         }
 
-        log_record.update(extra_fields)
+        payload.update(extra_fields)
 
-        return json.dumps(log_record, default=str)
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+
+        return json.dumps(payload, default=str)
 
 
 def configure_json_logging(level: int = logging.INFO) -> None:
@@ -3462,18 +3657,14 @@ def configure_json_logging(level: int = logging.INFO) -> None:
     root_logger.setLevel(level)
 ```
 
-Update `src/mlops_lr/api.py`:
+FastAPI logging setup:
 
 ```python
-import logging
-
-from mlops_lr.json_logging import configure_json_logging
-
 configure_json_logging()
 logger = logging.getLogger(__name__)
 ```
 
-Inside `/predict`, log success:
+Prediction success log:
 
 ```python
 logger.info(
@@ -3488,7 +3679,7 @@ logger.info(
 )
 ```
 
-Inside the exception block, log failure:
+Prediction failure log:
 
 ```python
 logger.exception(
@@ -3501,13 +3692,7 @@ logger.exception(
 )
 ```
 
-Add test:
-
-```text
-tests/test_json_logging.py
-```
-
-Implementation:
+Tests:
 
 ```python
 import json
@@ -3546,11 +3731,6 @@ Run:
 black src tests
 flake8 src tests
 PYTHONPATH=src pytest
-```
-
-Test JSON logs from Docker:
-
-```bash
 docker compose up -d --build api
 curl -X POST http://127.0.0.1:8000/predict \
   -H "Content-Type: application/json" \
@@ -3563,6 +3743,12 @@ curl -X POST http://127.0.0.1:8000/predict \
     "debt_to_income": 0.3
   }'
 docker logs mlops-logistic-regression-api --tail 20
+```
+
+Expected log message:
+
+```text
+prediction_completed
 ```
 
 Expected log shape:
@@ -3586,18 +3772,14 @@ Expected log shape:
 
 Added centralized log collection using Loki and Promtail.
 
-Log flow:
+The log flow is:
 
 ```text
 FastAPI JSON logs
-    ↓
-Docker logs
-    ↓
-Promtail
-    ↓
-Loki
-    ↓
-Grafana
+→ Docker container logs
+→ Promtail
+→ Loki
+→ Grafana
 ```
 
 Promtail config:
@@ -3615,17 +3797,12 @@ clients:
 
 scrape_configs:
   - job_name: docker-containers
-    docker_sd_configs:
-      - host: unix:///var/run/docker.sock
-        refresh_interval: 5s
-
-    relabel_configs:
-      - source_labels: ["__meta_docker_container_name"]
-        target_label: "container"
-      - source_labels: ["__meta_docker_container_log_stream"]
-        target_label: "stream"
-      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
-        target_label: "compose_service"
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker
+          __path__: /var/lib/docker/containers/*/*-json.log
 ```
 
 Docker Compose services:
@@ -3643,6 +3820,7 @@ Docker Compose services:
     container_name: mlops-promtail
     volumes:
       - ./monitoring/promtail-config.yml:/etc/promtail/config.yml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock
     command: -config.file=/etc/promtail/config.yml
     depends_on:
@@ -3662,8 +3840,12 @@ Grafana Loki datasource:
 Run:
 
 ```bash
+python -c "import yaml; yaml.safe_load(open('monitoring/promtail-config.yml'))"
 docker compose up -d
 docker compose ps
+docker logs mlops-loki --tail 50
+docker logs mlops-promtail --tail 50
+curl http://127.0.0.1:3100/ready
 ```
 
 Generate logs:
@@ -3696,16 +3878,24 @@ Explore → Loki
 Query:
 
 ```logql
-{job="docker"}|= "prediction_completed"
+{job="docker"} |= "prediction_completed"
 ```
 
-### Step 78: Add Log Correlation IDs
+### Step 78: Add Request Correlation IDs
 
 Added request correlation IDs to API responses and structured logs.
 
-A request ID helps connect one request across API response headers, JSON logs, Loki, and Jaeger.
+A request ID helps connect:
 
-Request ID middleware:
+```text
+HTTP request
+→ API response header
+→ JSON log
+→ Loki search
+→ Jaeger trace
+```
+
+Middleware:
 
 ```python
 @app.middleware("http")
@@ -3719,7 +3909,7 @@ async def add_request_id(request: Request, call_next):
     return response
 ```
 
-Prediction endpoint now uses separate names for the request body and HTTP request:
+Prediction endpoint uses separate names for the request body and HTTP request:
 
 ```python
 @app.post("/predict", response_model=PredictionResponse)
@@ -3758,23 +3948,44 @@ logger.exception(
 )
 ```
 
+Tests:
+
+```python
+def test_predict(monkeypatch):
+    def fake_predict(request):
+        return 1, 0.82
+
+    monkeypatch.setattr(model_service, "predict", fake_predict)
+
+    response = client.post(
+        "/predict",
+        headers={"x-request-id": "test-request-123"},
+        json={
+            "age": 35,
+            "income": 75000,
+            "loan_amount": 25000,
+            "credit_score": 700,
+            "employment_years": 5,
+            "debt_to_income": 0.3,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["x-request-id"] == "test-request-123"
+    assert response.json() == {
+        "loan_approved": 1,
+        "probability": 0.82,
+    }
+
+```
+
 Run:
 
 ```bash
 black src tests
 flake8 src tests
 PYTHONPATH=src pytest
-```
-
-Rebuild API:
-
-```bash
 docker compose up -d --build api
-```
-
-Test with custom request ID:
-
-```bash
 curl -i -X POST http://127.0.0.1:8000/predict \
   -H "Content-Type: application/json" \
   -H "x-request-id: test-request-123" \
@@ -3786,6 +3997,7 @@ curl -i -X POST http://127.0.0.1:8000/predict \
     "employment_years": 5,
     "debt_to_income": 0.3
   }'
+docker logs mlops-logistic-regression-api --tail 20
 ```
 
 Expected response header:
@@ -3794,49 +4006,31 @@ Expected response header:
 x-request-id: test-request-123
 ```
 
-Check Docker logs:
-
-```bash
-docker logs mlops-logistic-regression-api --tail 20
-```
-
 Expected log field:
 
 ```json
 "request_id": "test-request-123"
 ```
 
-Search in Grafana Loki:
+Search in Loki:
 
 ```logql
-{compose_service="api"} |= "test-request-123"
+{job="docker"} |= "test-request-123"
 ```
 
 ### Step 79: Add Loki Log Dashboard Panel
 
 Added a Loki logs panel to the existing Grafana API dashboard.
 
-This panel shows prediction logs generated by the FastAPI service and collected through Loki.
-
-Log flow:
+The dashboard now shows:
 
 ```text
-FastAPI JSON logs
-    ↓
-Docker logs
-    ↓
-Promtail
-    ↓
-Loki
-    ↓
-Grafana dashboard
-```
-
-Files updated:
-
-```text
-monitoring/grafana/dashboards/mlops-api-dashboard.json
-README.md
+Prometheus API metrics
+→ prediction request rate
+→ prediction error rate
+→ request latency
+→ prediction probability
+→ Loki prediction logs
 ```
 
 Dashboard file:
@@ -3845,24 +4039,7 @@ Dashboard file:
 monitoring/grafana/dashboards/mlops-api-dashboard.json
 ```
 
-Existing last panel before this step:
-
-```json
-{
-  "type": "timeseries",
-  "title": "Prediction Probability",
-  "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
-  "targets": [
-    {
-      "expr": "histogram_quantile(0.95, rate(prediction_probability_bucket[5m]))",
-      "legendFormat": "p95 probability",
-      "refId": "A"
-    }
-  ]
-}
-```
-
-Added a comma after the last panel and appended this logs panel inside the top-level `panels` array:
+Implementation:
 
 ```json
 {
@@ -3897,55 +4074,6 @@ Added a comma after the last panel and appended this logs panel inside the top-l
 }
 ```
 
-The end of the dashboard JSON should look like this:
-
-```json
-    {
-      "type": "timeseries",
-      "title": "Prediction Probability",
-      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.95, rate(prediction_probability_bucket[5m]))",
-          "legendFormat": "p95 probability",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "type": "logs",
-      "title": "API Prediction Logs",
-      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
-      "datasource": {
-        "type": "loki",
-        "uid": "Loki"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "Loki"
-          },
-          "expr": "{job=\"docker\"} |= \"prediction_completed\"",
-          "queryType": "range",
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "showTime": true,
-        "showLabels": true,
-        "showCommonLabels": false,
-        "wrapLogMessage": true,
-        "prettifyLogMessage": true,
-        "enableLogDetails": true,
-        "sortOrder": "Descending",
-        "dedupStrategy": "none"
-      }
-    }
-  ]
-}
-```
-
 Panel query:
 
 ```logql
@@ -3955,42 +4083,18 @@ Panel query:
 Why this query is used:
 
 ```text
-Promtail currently labels Docker logs with job="docker".
+Promtail labels Docker logs with job="docker".
 ```
 
-The active Promtail config uses:
-
-```yaml
-labels:
-  job: docker
-  __path__: /var/lib/docker/containers/*/*-json.log
-```
-
-So do not use this query unless Promtail is changed to create `compose_service` labels:
-
-```logql
-{compose_service="api"} |= "prediction_completed"
-```
-
-Validate dashboard JSON:
+Run:
 
 ```bash
 python -m json.tool monitoring/grafana/dashboards/mlops-api-dashboard.json > /tmp/mlops-dashboard.json
-```
-
-Restart Grafana so it reloads the dashboard:
-
-```bash
 docker compose restart grafana
-```
-
-Check Grafana logs:
-
-```bash
 docker logs mlops-grafana --tail 50
 ```
 
-Generate a fresh prediction log:
+Generate a prediction log:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/predict \
@@ -4006,22 +4110,16 @@ curl -X POST http://127.0.0.1:8000/predict \
   }'
 ```
 
-Check Loki directly in Grafana Explore:
+Open Grafana:
 
 ```text
-Grafana → Explore → Loki
+http://127.0.0.1:3000
 ```
 
-Use this query:
-
-```logql
-{job="docker"} |= "dashboard-test-123"
-```
-
-Open the dashboard:
+Open dashboard:
 
 ```text
-Grafana → Dashboards → MLOps API Monitoring
+Dashboards → MLOps API Monitoring
 ```
 
 Set time range:
@@ -4030,93 +4128,38 @@ Set time range:
 Last 15 minutes
 ```
 
-Expected dashboard panel:
+Expected panel:
 
 ```text
 API Prediction Logs
 ```
 
-Expected result:
+Expected log query:
 
-```text
-The API Prediction Logs panel shows prediction_completed log lines.
+```logql
+{job="docker"} |= "dashboard-test-123"
 ```
 
-If the panel is empty:
-
-```text
-1. Confirm the API generated a log.
-2. Confirm Loki has the log in Explore.
-3. Confirm the dashboard query uses {job="docker"}.
-4. Confirm the Grafana time range includes the log time.
-5. Restart Grafana after dashboard JSON changes.
-```
-
-Check API logs:
-
-```bash
-docker logs mlops-logistic-regression-api --tail 20
-```
-
-Check Loki labels:
-
-```bash
-curl http://127.0.0.1:3100/loki/api/v1/labels
-```
-
-Expected Loki labels include:
-
-```text
-job
-filename
-service_name
-```
-
-Commit changes:
-
-```bash
-git add .
-git commit -m "feat: add loki logs dashboard panel"
-```
-
+## Phase 14: Load Testing
 ### Step 80: Add Locust Load Testing
 
-Added Locust for load testing the FastAPI inference service.
+Added Locust load testing for the FastAPI inference API.
 
-This step simulates multiple users calling the API so we can observe API behavior under load.
-
-Load testing flow:
+The load test runs:
 
 ```text
-Locust
-    ↓
-FastAPI /predict
-    ↓
-Prometheus metrics
-    ↓
-Grafana dashboard
-    ↓
-Loki logs
+health checks
+→ prediction requests
+→ Prometheus metrics update
+→ Grafana dashboard updates
+→ Loki logs are generated
 ```
 
-Files created or updated:
-
-```text
-locustfile.py
-requirements.txt
-README.md
-```
-
-Added dependency:
+Dependencies:
 
 ```text
 locust
-```
-
-Created load test file:
-
-```text
-locustfile.py
+setuptools<81
 ```
 
 Implementation:
@@ -4150,36 +4193,42 @@ class LoanApprovalUser(HttpUser):
         self.client.get("/health")
 ```
 
-Task behavior:
+Tests:
 
-```text
-predict runs more frequently than health
-health confirms API availability
-wait_time simulates user think time
+```python
+from pathlib import Path
+
+
+def test_locustfile_exists():
+    locustfile = Path("locustfile.py")
+
+    assert locustfile.exists()
+
+
+def test_locustfile_defines_loan_approval_user():
+    content = Path("locustfile.py").read_text()
+
+    assert "class LoanApprovalUser" in content
+    assert "def predict" in content
+    assert "def health" in content
+    assert "locust-load-test" in content
 ```
 
-Install dependencies:
+Run:
 
 ```bash
 pip install -r requirements.txt
-```
-
-Start the local stack:
-
-```bash
+black src tests locustfile.py
+flake8 src tests locustfile.py
+PYTHONPATH=src pytest
 docker compose up -d
-```
-
-Run Locust UI:
-
-```bash
 locust -f locustfile.py --host http://127.0.0.1:8000
 ```
 
 Open Locust:
 
 ```text
-2
+http://127.0.0.1:8089
 ```
 
 Start with:
@@ -4190,7 +4239,7 @@ Spawn rate: 2
 Host: http://127.0.0.1:8000
 ```
 
-Headless smoke load test:
+Headless run:
 
 ```bash
 locust -f locustfile.py \
@@ -4201,79 +4250,1731 @@ locust -f locustfile.py \
   --headless
 ```
 
-Watch Grafana:
-
-```text
-Grafana → Dashboards → MLOps API Monitoring
-```
-
-Watch Loki logs:
-
-```text
-Grafana → Explore → Loki
-```
-
-Useful Loki query:
+Check Loki:
 
 ```logql
 {job="docker"} |= "locust-load-test"
 ```
 
-Useful Prometheus queries:
+Check Grafana:
 
-```promql
-rate(prediction_requests_total[1m])
-```
-
-```promql
-rate(prediction_errors_total[1m])
-```
-
-```promql
-histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+```text
+Grafana → Dashboards → MLOps API Monitoring
 ```
 
 Expected result:
 
 ```text
-Locust shows successful requests.
-Grafana request rate increases.
-Grafana latency panels update.
-Loki shows locust-load-test request logs.
+Locust sends traffic to the API.
+Prediction request metrics increase.
+Latency panels update.
+Loki shows locust-load-test logs.
 ```
 
-If Locust cannot connect:
+### Step 81: Add Load Test Result Export
+
+Added a reports directory for Locust load test results.
+
+Load test reports are stored in:
 
 ```text
-1. Confirm API is running on port 8000.
-2. Run docker compose ps.
-3. Open http://127.0.0.1:8000/health.
-4. Confirm Locust host is http://127.0.0.1:8000.
+reports/load_tests
 ```
 
-Added test:
+The directory is tracked with:
 
 ```text
-tests/test_locustfile.py
+reports/load_tests/.gitkeep
 ```
 
-Test implementation:
+The export flow is:
 
-```python
-from locustfile import LoanApprovalUser
-
-
-def test_loan_approval_user_has_tasks():
-    tasks = LoanApprovalUser.tasks
-
-    assert len(tasks) > 0
+```text
+Locust headless run
+→ CSV result files
+→ reports/load_tests
+→ review latency, throughput, failures
 ```
 
-This test verifies that the Locust user class imports correctly and has registered tasks.
-
-Commit changes:
+Implementation:
 
 ```bash
-git add .
-git commit -m "feat: add locust load testing"
+mkdir -p reports/load_tests
+touch reports/load_tests/.gitkeep
+```
+
+Locust CSV export command:
+
+```bash
+locust -f locustfile.py \
+  --host http://127.0.0.1:8000 \
+  --users 10 \
+  --spawn-rate 2 \
+  --run-time 1m \
+  --headless \
+  --csv reports/load_tests/locust_10_users
+```
+
+Generated files:
+
+```text
+reports/load_tests/locust_10_users_stats.csv
+reports/load_tests/locust_10_users_failures.csv
+reports/load_tests/locust_10_users_exceptions.csv
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+
+def test_load_test_reports_directory_exists():
+    reports_dir = Path("reports/load_tests")
+
+    assert reports_dir.exists()
+    assert reports_dir.is_dir()
+```
+
+Run:
+
+```bash
+black src tests locustfile.py
+flake8 src tests locustfile.py
+PYTHONPATH=src pytest
+docker compose up -d
+locust -f locustfile.py \
+  --host http://127.0.0.1:8000 \
+  --users 10 \
+  --spawn-rate 2 \
+  --run-time 1m \
+  --headless \
+  --csv reports/load_tests/locust_10_users
+ls reports/load_tests
+```
+
+Expected result:
+
+```text
+Locust writes CSV reports under reports/load_tests.
+```
+
+### Step 82: Add Load Test Summary Script
+
+Added a script to summarize Locust CSV output into a compact JSON report.
+
+The summary flow is:
+
+```text
+Locust CSV stats
+→ summary script
+→ JSON summary
+→ review load test result
+```
+
+Implementation:
+
+```python
+import argparse
+import json
+from pathlib import Path
+
+import pandas as pd
+
+
+def summarize_load_test(stats_path: str) -> dict[str, float]:
+    stats = pd.read_csv(stats_path)
+
+    aggregated = stats[stats["Name"] == "Aggregated"]
+
+    if aggregated.empty:
+        raise ValueError("Aggregated row not found in Locust stats file")
+
+    row = aggregated.iloc[0]
+
+    return {
+        "request_count": float(row["Request Count"]),
+        "failure_count": float(row["Failure Count"]),
+        "median_response_time_ms": float(row["Median Response Time"]),
+        "average_response_time_ms": float(row["Average Response Time"]),
+        "min_response_time_ms": float(row["Min Response Time"]),
+        "max_response_time_ms": float(row["Max Response Time"]),
+        "requests_per_second": float(row["Requests/s"]),
+        "failures_per_second": float(row["Failures/s"]),
+    }
+
+
+def save_summary(summary: dict[str, float], output_path: str) -> None:
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(summary, indent=2))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--stats-path", required=True)
+    parser.add_argument("--output-path", required=True)
+    args = parser.parse_args()
+
+    summary = summarize_load_test(args.stats_path)
+    save_summary(summary, args.output_path)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Tests:
+
+```python
+import json
+
+import pandas as pd
+
+from scripts.summarize_load_test import save_summary, summarize_load_test
+
+
+def test_summarize_load_test(tmp_path):
+    stats_path = tmp_path / "locust_stats.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "Type": "POST",
+                "Name": "/predict",
+                "Request Count": 10,
+                "Failure Count": 0,
+                "Median Response Time": 20,
+                "Average Response Time": 25,
+                "Min Response Time": 10,
+                "Max Response Time": 50,
+                "Requests/s": 2.5,
+                "Failures/s": 0.0,
+            },
+            {
+                "Type": "",
+                "Name": "Aggregated",
+                "Request Count": 20,
+                "Failure Count": 1,
+                "Median Response Time": 30,
+                "Average Response Time": 35,
+                "Min Response Time": 10,
+                "Max Response Time": 80,
+                "Requests/s": 4.0,
+                "Failures/s": 0.1,
+            },
+        ]
+    ).to_csv(stats_path, index=False)
+
+    summary = summarize_load_test(str(stats_path))
+
+    assert summary["request_count"] == 20
+    assert summary["failure_count"] == 1
+    assert summary["median_response_time_ms"] == 30
+    assert summary["average_response_time_ms"] == 35
+    assert summary["requests_per_second"] == 4.0
+    assert summary["failures_per_second"] == 0.1
+
+
+def test_save_summary(tmp_path):
+    output_path = tmp_path / "summary.json"
+    summary = {
+        "request_count": 20,
+        "failure_count": 1,
+    }
+
+    save_summary(summary, str(output_path))
+
+    saved = json.loads(output_path.read_text())
+
+    assert saved == summary
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+python scripts/summarize_load_test.py \
+  --stats-path reports/load_tests/locust_10_users_stats.csv \
+  --output-path reports/load_tests/locust_10_users_summary.json
+cat reports/load_tests/locust_10_users_summary.json
+```
+
+### Step 83: Add Load Test Threshold Check
+
+Added threshold validation for Locust load test summaries.
+
+The threshold check validates:
+
+```text
+failure count
+average response time
+```
+
+Implementation:
+
+```python
+def validate_thresholds(
+    summary: dict[str, float],
+    max_failure_count: float,
+    max_average_response_time_ms: float,
+) -> None:
+    if summary["failure_count"] > max_failure_count:
+        raise ValueError(
+            "Load test failed: "
+            f"failure_count={summary['failure_count']} "
+            f"> max_failure_count={max_failure_count}"
+        )
+
+    if summary["average_response_time_ms"] > max_average_response_time_ms:
+        raise ValueError(
+            "Load test failed: "
+            f"average_response_time_ms={summary['average_response_time_ms']} "
+            f"> max_average_response_time_ms={max_average_response_time_ms}"
+        )
+```
+
+CLI arguments:
+
+```python
+parser.add_argument("--max-failure-count", type=float, default=0)
+parser.add_argument("--max-average-response-time-ms", type=float, default=500)
+```
+
+Tests:
+
+```python
+import pytest
+
+from scripts.summarize_load_test import validate_thresholds
+
+
+def test_validate_thresholds_passes():
+    summary = {
+        "failure_count": 0,
+        "average_response_time_ms": 100,
+    }
+
+    validate_thresholds(
+        summary,
+        max_failure_count=0,
+        max_average_response_time_ms=500,
+    )
+
+
+def test_validate_thresholds_fails_for_failures():
+    summary = {
+        "failure_count": 1,
+        "average_response_time_ms": 100,
+    }
+
+    with pytest.raises(ValueError, match="failure_count"):
+        validate_thresholds(
+            summary,
+            max_failure_count=0,
+            max_average_response_time_ms=500,
+        )
+
+
+def test_validate_thresholds_fails_for_slow_response():
+    summary = {
+        "failure_count": 0,
+        "average_response_time_ms": 800,
+    }
+
+    with pytest.raises(ValueError, match="average_response_time_ms"):
+        validate_thresholds(
+            summary,
+            max_failure_count=0,
+            max_average_response_time_ms=500,
+        )
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+python scripts/summarize_load_test.py \
+  --stats-path reports/load_tests/locust_10_users_stats.csv \
+  --output-path reports/load_tests/locust_10_users_summary.json \
+  --max-failure-count 0 \
+  --max-average-response-time-ms 500
+cat reports/load_tests/locust_10_users_summary.json
+```
+
+### Step 84: Add CI Load Test Job
+
+Added a CI job that runs a small headless Locust load test.
+
+The CI load test flow is:
+
+```text
+GitHub Actions
+→ build API container
+→ run Locust headless test
+→ export CSV reports
+→ summarize results
+→ validate thresholds
+→ upload reports as artifact
+```
+
+Implementation:
+
+```yaml
+  load-test:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Start API stack
+        run: |
+          docker compose up -d --build api
+          sleep 15
+
+      - name: Run Locust headless load test
+        run: |
+          locust -f locustfile.py \
+            --host http://127.0.0.1:8000 \
+            --users 5 \
+            --spawn-rate 1 \
+            --run-time 30s \
+            --headless \
+            --csv reports/load_tests/ci_locust
+
+      - name: Summarize and validate load test
+        run: |
+          python scripts/summarize_load_test.py \
+            --stats-path reports/load_tests/ci_locust_stats.csv \
+            --output-path reports/load_tests/ci_locust_summary.json \
+            --max-failure-count 0 \
+            --max-average-response-time-ms 1000
+
+      - name: Upload load test reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-reports
+          path: reports/load_tests/
+```
+
+Run locally before pushing:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+docker compose up -d --build api
+locust -f locustfile.py \
+  --host http://127.0.0.1:8000 \
+  --users 5 \
+  --spawn-rate 1 \
+  --run-time 30s \
+  --headless \
+  --csv reports/load_tests/ci_locust
+python scripts/summarize_load_test.py \
+  --stats-path reports/load_tests/ci_locust_stats.csv \
+  --output-path reports/load_tests/ci_locust_summary.json \
+  --max-failure-count 0 \
+  --max-average-response-time-ms 1000
+cat reports/load_tests/ci_locust_summary.json
+```
+
+## Phase 15 — Data & Model Monitoring
+
+### Step 86: Add Prediction Logging Store
+
+Added a CSV prediction logging store for ML monitoring.
+
+The prediction logging flow is:
+
+```text
+/predict request
+→ model prediction
+→ prediction record
+→ data/predictions.csv
+→ drift monitoring later
+```
+
+Configuration:
+
+```yaml
+monitoring:
+  prediction_log_path: data/predictions.csv
+```
+
+Implementation:
+
+```python
+from pathlib import Path
+
+import pandas as pd
+
+from mlops_lr.schemas import PredictionRequest
+
+
+def prediction_to_record(
+    request: PredictionRequest,
+    prediction: int,
+    probability: float,
+    request_id: str,
+    trace_id: str,
+) -> dict[str, Union[float, int, str]]:
+    return {
+        "request_id": request_id,
+        "trace_id": trace_id,
+        "age": request.age,
+        "income": request.income,
+        "loan_amount": request.loan_amount,
+        "credit_score": request.credit_score,
+        "employment_years": request.employment_years,
+        "debt_to_income": request.debt_to_income,
+        "prediction": prediction,
+        "probability": probability,
+    }
+
+
+def append_prediction_log(record: dict, output_path: str) -> None:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    row = pd.DataFrame([record])
+
+    if path.exists():
+        row.to_csv(path, mode="a", header=False, index=False)
+    else:
+        row.to_csv(path, index=False)
+```
+
+API integration:
+
+```python
+trace_context = get_current_trace_context()
+record = prediction_to_record(
+    request=payload,
+    prediction=prediction,
+    probability=probability,
+    request_id=request_id,
+    trace_id=trace_context["trace_id"],
+)
+append_prediction_log(record, config.monitoring.prediction_log_path)
+```
+
+Tests:
+
+```python
+import pandas as pd
+
+from mlops_lr.prediction_logging import append_prediction_log, prediction_to_record
+from mlops_lr.schemas import PredictionRequest
+
+
+def test_prediction_to_record():
+    request = PredictionRequest(
+        age=35,
+        income=75000,
+        loan_amount=25000,
+        credit_score=700,
+        employment_years=5,
+        debt_to_income=0.3,
+    )
+
+    record = prediction_to_record(
+        request=request,
+        prediction=1,
+        probability=0.91,
+        request_id="request-123",
+        trace_id="trace-123",
+    )
+
+    assert record["request_id"] == "request-123"
+    assert record["trace_id"] == "trace-123"
+    assert record["credit_score"] == 700
+    assert record["prediction"] == 1
+    assert record["probability"] == 0.91
+
+
+def test_append_prediction_log(tmp_path):
+    output_path = tmp_path / "predictions.csv"
+
+    record = {
+        "request_id": "request-123",
+        "trace_id": "trace-123",
+        "age": 35,
+        "income": 75000,
+        "loan_amount": 25000,
+        "credit_score": 700,
+        "employment_years": 5,
+        "debt_to_income": 0.3,
+        "prediction": 1,
+        "probability": 0.91,
+    }
+
+    append_prediction_log(record, str(output_path))
+    append_prediction_log(record, str(output_path))
+
+    logs = pd.read_csv(output_path)
+
+    assert len(logs) == 2
+    assert logs.iloc[0]["request_id"] == "request-123"
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+docker compose up -d --build api
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -H "x-request-id: prediction-log-test-123" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+tail -n 5 data/predictions.csv
+```
+
+### Step 87: Add Input Statistics Report
+
+Added input feature statistics for prediction logs.
+
+The input statistics flow is:
+
+```text
+data/predictions.csv
+→ compute feature statistics
+→ save input statistics report
+→ use later for drift monitoring
+```
+
+Implementation:
+
+```python
+from pathlib import Path
+
+import pandas as pd
+
+
+FEATURE_COLUMNS = [
+    "age",
+    "income",
+    "loan_amount",
+    "credit_score",
+    "employment_years",
+    "debt_to_income",
+]
+
+
+def compute_input_statistics(prediction_log_path: str) -> dict[str, dict[str, float]]:
+    logs = pd.read_csv(prediction_log_path)
+
+    missing_columns = [
+        column for column in FEATURE_COLUMNS if column not in logs.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(f"Missing feature columns: {missing_columns}")
+
+    statistics: dict[str, dict[str, float]] = {}
+
+    for column in FEATURE_COLUMNS:
+        statistics[column] = {
+            "mean": float(logs[column].mean()),
+            "std": float(logs[column].std()),
+            "min": float(logs[column].min()),
+            "max": float(logs[column].max()),
+        }
+
+    return statistics
+
+
+def save_input_statistics(
+    statistics: dict[str, dict[str, float]],
+    output_path: str,
+) -> None:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    rows = []
+
+    for feature_name, feature_stats in statistics.items():
+        row = {"feature": feature_name}
+        row.update(feature_stats)
+        rows.append(row)
+
+    pd.DataFrame(rows).to_csv(path, index=False)
+```
+
+Tests:
+
+```python
+import pandas as pd
+import pytest
+
+from mlops_lr.input_statistics import (
+    compute_input_statistics,
+    save_input_statistics,
+)
+
+
+def test_compute_input_statistics(tmp_path):
+    prediction_log_path = tmp_path / "predictions.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "age": 30,
+                "income": 60000,
+                "loan_amount": 20000,
+                "credit_score": 680,
+                "employment_years": 4,
+                "debt_to_income": 0.25,
+            },
+            {
+                "age": 40,
+                "income": 80000,
+                "loan_amount": 30000,
+                "credit_score": 720,
+                "employment_years": 6,
+                "debt_to_income": 0.35,
+            },
+        ]
+    ).to_csv(prediction_log_path, index=False)
+
+    statistics = compute_input_statistics(str(prediction_log_path))
+
+    assert statistics["age"]["mean"] == 35
+    assert statistics["income"]["min"] == 60000
+    assert statistics["credit_score"]["max"] == 720
+
+
+def test_compute_input_statistics_fails_for_missing_columns(tmp_path):
+    prediction_log_path = tmp_path / "predictions.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "age": 30,
+                "income": 60000,
+            }
+        ]
+    ).to_csv(prediction_log_path, index=False)
+
+    with pytest.raises(ValueError, match="Missing feature columns"):
+        compute_input_statistics(str(prediction_log_path))
+
+
+def test_save_input_statistics(tmp_path):
+    output_path = tmp_path / "input_statistics.csv"
+
+    statistics = {
+        "age": {
+            "mean": 35,
+            "std": 7.07,
+            "min": 30,
+            "max": 40,
+        }
+    }
+
+    save_input_statistics(statistics, str(output_path))
+
+    saved = pd.read_csv(output_path)
+
+    assert saved.iloc[0]["feature"] == "age"
+    assert saved.iloc[0]["mean"] == 35
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.input_statistics import compute_input_statistics, save_input_statistics; stats = compute_input_statistics('data/predictions.csv'); save_input_statistics(stats, 'reports/input_statistics.csv')"
+cat reports/input_statistics.csv
+```
+
+### Step 88: Add Prediction Drift Statistics
+
+Added prediction statistics for monitoring prediction drift.
+
+The prediction drift statistics flow is:
+
+```text
+data/predictions.csv
+→ compute prediction statistics
+→ save prediction statistics report
+→ use later for prediction drift monitoring
+```
+
+Implementation:
+
+```python
+from pathlib import Path
+
+import pandas as pd
+
+
+def compute_prediction_statistics(
+    prediction_log_path: str,
+) -> dict[str, float]:
+    logs = pd.read_csv(prediction_log_path)
+
+    required_columns = ["prediction", "probability"]
+
+    missing_columns = [
+        column for column in required_columns if column not in logs.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(f"Missing prediction columns: {missing_columns}")
+
+    return {
+        "prediction_rate": float(logs["prediction"].mean()),
+        "average_probability": float(logs["probability"].mean()),
+        "min_probability": float(logs["probability"].min()),
+        "max_probability": float(logs["probability"].max()),
+    }
+
+
+def save_prediction_statistics(
+    statistics: dict[str, float],
+    output_path: str,
+) -> None:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    pd.DataFrame([statistics]).to_csv(path, index=False)
+```
+
+Tests:
+
+```python
+import pandas as pd
+import pytest
+
+from mlops_lr.prediction_drift import (
+    compute_prediction_statistics,
+    save_prediction_statistics,
+)
+
+
+def test_compute_prediction_statistics(tmp_path):
+    prediction_log_path = tmp_path / "predictions.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "prediction": 1,
+                "probability": 0.90,
+            },
+            {
+                "prediction": 0,
+                "probability": 0.20,
+            },
+            {
+                "prediction": 1,
+                "probability": 0.80,
+            },
+        ]
+    ).to_csv(prediction_log_path, index=False)
+
+    statistics = compute_prediction_statistics(str(prediction_log_path))
+
+    assert statistics["prediction_rate"] == pytest.approx(2 / 3)
+    assert statistics["average_probability"] == pytest.approx(0.6333333333)
+    assert statistics["min_probability"] == 0.20
+    assert statistics["max_probability"] == 0.90
+
+
+def test_compute_prediction_statistics_fails_for_missing_columns(tmp_path):
+    prediction_log_path = tmp_path / "predictions.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "prediction": 1,
+            }
+        ]
+    ).to_csv(prediction_log_path, index=False)
+
+    with pytest.raises(ValueError, match="Missing prediction columns"):
+        compute_prediction_statistics(str(prediction_log_path))
+
+
+def test_save_prediction_statistics(tmp_path):
+    output_path = tmp_path / "prediction_statistics.csv"
+    statistics = {
+        "prediction_rate": 0.5,
+        "average_probability": 0.6,
+        "min_probability": 0.1,
+        "max_probability": 0.9,
+    }
+
+    save_prediction_statistics(statistics, str(output_path))
+
+    saved = pd.read_csv(output_path)
+
+    assert saved.iloc[0]["prediction_rate"] == 0.5
+    assert saved.iloc[0]["average_probability"] == 0.6
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.prediction_drift import compute_prediction_statistics, save_prediction_statistics; stats = compute_prediction_statistics('data/predictions.csv'); save_prediction_statistics(stats, 'reports/prediction_statistics.csv')"
+cat reports/prediction_statistics.csv
+```
+
+### Step 89: Add Evidently Dependency
+
+Added Evidently AI for data and prediction drift monitoring.
+
+Evidently will be used to compare reference data against current prediction logs.
+
+The drift monitoring flow will be:
+
+```text
+reference data
+→ current prediction data
+→ Evidently drift report
+→ HTML / JSON report
+→ drift monitoring decision
+```
+
+Dependency:
+
+```text
+evidently==0.7.11
+```
+
+Why this version is pinned:
+
+```text
+The project currently uses Python 3.9.
+Newer Evidently versions require Python 3.10+.
+Evidently 0.7.11 supports Python 3.8+.
+```
+
+Implementation:
+
+```text
+evidently==0.7.11
+```
+
+Tests:
+
+```python
+from importlib.metadata import version
+
+
+def test_evidently_dependency_installed():
+    installed_version = version("evidently")
+
+    assert installed_version == "0.7.11"
+```
+
+Run:
+
+```bash
+pip install -r requirements.txt
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+```
+
+### Step 90: Create Reference Monitoring Dataset
+
+Created a reference monitoring dataset for drift comparison.
+
+The reference monitoring dataset is built from processed training data.
+
+The monitoring dataset flow is:
+
+```text
+data/processed.csv
+→ select feature columns
+→ data/reference_monitoring.csv
+→ Evidently reference dataset
+```
+
+Implementation:
+
+```python
+from pathlib import Path
+
+import pandas as pd
+
+
+FEATURE_COLUMNS = [
+    "age",
+    "income",
+    "loan_amount",
+    "credit_score",
+    "employment_years",
+    "debt_to_income",
+]
+
+
+def create_reference_monitoring_dataset(
+    processed_data_path: str,
+    output_path: str,
+) -> pd.DataFrame:
+    data = pd.read_csv(processed_data_path)
+
+    missing_columns = [
+        column for column in FEATURE_COLUMNS if column not in data.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(f"Missing feature columns: {missing_columns}")
+
+    reference = data[FEATURE_COLUMNS].copy()
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    reference.to_csv(path, index=False)
+
+    return reference
+```
+
+Tests:
+
+```python
+import pandas as pd
+import pytest
+
+from mlops_lr.monitoring_dataset import create_reference_monitoring_dataset
+
+
+def test_create_reference_monitoring_dataset(tmp_path):
+    processed_data_path = tmp_path / "processed.csv"
+    output_path = tmp_path / "reference_monitoring.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+                "loan_amount": 25000,
+                "credit_score": 700,
+                "employment_years": 5,
+                "debt_to_income": 0.3,
+                "loan_approved": 1,
+            }
+        ]
+    ).to_csv(processed_data_path, index=False)
+
+    reference = create_reference_monitoring_dataset(
+        processed_data_path=str(processed_data_path),
+        output_path=str(output_path),
+    )
+
+    assert output_path.exists()
+    assert list(reference.columns) == [
+        "age",
+        "income",
+        "loan_amount",
+        "credit_score",
+        "employment_years",
+        "debt_to_income",
+    ]
+
+
+def test_create_reference_monitoring_dataset_fails_for_missing_columns(tmp_path):
+    processed_data_path = tmp_path / "processed.csv"
+    output_path = tmp_path / "reference_monitoring.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+            }
+        ]
+    ).to_csv(processed_data_path, index=False)
+
+    with pytest.raises(ValueError, match="Missing feature columns"):
+        create_reference_monitoring_dataset(
+            processed_data_path=str(processed_data_path),
+            output_path=str(output_path),
+        )
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.monitoring_dataset import create_reference_monitoring_dataset; create_reference_monitoring_dataset('data/processed.csv', 'data/reference_monitoring.csv')"
+head data/reference_monitoring.csv
+```
+
+### Step 91: Generate Evidently Data Drift Report
+
+Added Evidently data drift report generation.
+
+The data drift report flow is:
+
+```text
+reference monitoring data
+→ current prediction input data
+→ Evidently DataDriftPreset
+→ HTML drift report
+→ JSON drift report
+```
+
+Implementation:
+
+```python
+from pathlib import Path
+
+import pandas as pd
+from evidently import Report
+from evidently.presets import DataDriftPreset
+
+
+FEATURE_COLUMNS = [
+    "age",
+    "income",
+    "loan_amount",
+    "credit_score",
+    "employment_years",
+    "debt_to_income",
+]
+
+
+def load_drift_data(
+    reference_path: str,
+    current_path: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    reference_data = pd.read_csv(reference_path)
+    current_data = pd.read_csv(current_path)
+
+    missing_reference_columns = [
+        column for column in FEATURE_COLUMNS if column not in reference_data.columns
+    ]
+    missing_current_columns = [
+        column for column in FEATURE_COLUMNS if column not in current_data.columns
+    ]
+
+    if missing_reference_columns:
+        raise ValueError(f"Missing reference columns: {missing_reference_columns}")
+
+    if missing_current_columns:
+        raise ValueError(f"Missing current columns: {missing_current_columns}")
+
+    return (
+        reference_data[FEATURE_COLUMNS].copy(),
+        current_data[FEATURE_COLUMNS].copy(),
+    )
+
+
+def generate_data_drift_report(
+    reference_path: str,
+    current_path: str,
+    html_output_path: str,
+    json_output_path: str,
+) -> None:
+    reference_data, current_data = load_drift_data(
+        reference_path=reference_path,
+        current_path=current_path,
+    )
+
+    report = Report([DataDriftPreset()])
+    snapshot = report.run(
+        reference_data=reference_data,
+        current_data=current_data,
+    )
+
+    html_path = Path(html_output_path)
+    json_path = Path(json_output_path)
+
+    html_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+
+    snapshot.save_html(str(html_path))
+    snapshot.save_json(str(json_path))
+```
+
+Tests:
+
+```python
+import pandas as pd
+import pytest
+
+from mlops_lr.evidently_drift import (
+    FEATURE_COLUMNS,
+    generate_data_drift_report,
+    load_drift_data,
+)
+
+
+def test_load_drift_data(tmp_path):
+    reference_path = tmp_path / "reference.csv"
+    current_path = tmp_path / "current.csv"
+
+    data = pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+                "loan_amount": 25000,
+                "credit_score": 700,
+                "employment_years": 5,
+                "debt_to_income": 0.3,
+                "extra_column": "ignored",
+            }
+        ]
+    )
+
+    data.to_csv(reference_path, index=False)
+    data.to_csv(current_path, index=False)
+
+    reference_data, current_data = load_drift_data(
+        reference_path=str(reference_path),
+        current_path=str(current_path),
+    )
+
+    assert list(reference_data.columns) == FEATURE_COLUMNS
+    assert list(current_data.columns) == FEATURE_COLUMNS
+
+
+def test_load_drift_data_fails_for_missing_current_columns(tmp_path):
+    reference_path = tmp_path / "reference.csv"
+    current_path = tmp_path / "current.csv"
+
+    reference = pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+                "loan_amount": 25000,
+                "credit_score": 700,
+                "employment_years": 5,
+                "debt_to_income": 0.3,
+            }
+        ]
+    )
+    current = pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+            }
+        ]
+    )
+
+    reference.to_csv(reference_path, index=False)
+    current.to_csv(current_path, index=False)
+
+    with pytest.raises(ValueError, match="Missing current columns"):
+        load_drift_data(
+            reference_path=str(reference_path),
+            current_path=str(current_path),
+        )
+
+
+def test_generate_data_drift_report(tmp_path):
+    reference_path = tmp_path / "reference.csv"
+    current_path = tmp_path / "current.csv"
+    html_output_path = tmp_path / "data_drift.html"
+    json_output_path = tmp_path / "data_drift.json"
+
+    data = pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+                "loan_amount": 25000,
+                "credit_score": 700,
+                "employment_years": 5,
+                "debt_to_income": 0.3,
+            },
+            {
+                "age": 45,
+                "income": 95000,
+                "loan_amount": 30000,
+                "credit_score": 720,
+                "employment_years": 10,
+                "debt_to_income": 0.2,
+            },
+        ]
+    )
+
+    data.to_csv(reference_path, index=False)
+    data.to_csv(current_path, index=False)
+
+    generate_data_drift_report(
+        reference_path=str(reference_path),
+        current_path=str(current_path),
+        html_output_path=str(html_output_path),
+        json_output_path=str(json_output_path),
+    )
+
+    assert html_output_path.exists()
+    assert json_output_path.exists()
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.evidently_drift import generate_data_drift_report; generate_data_drift_report('data/reference_monitoring.csv', 'data/predictions.csv', 'reports/data_drift.html', 'reports/data_drift.json')"
+ls reports
+```
+
+### Step 92: Add Evidently Prediction Drift Report
+
+Added Evidently prediction drift report generation.
+
+The prediction drift report flow is:
+
+```text
+reference prediction data
+→ current prediction data
+→ Evidently DataDriftPreset
+→ prediction drift HTML report
+→ prediction drift JSON report
+```
+
+Implementation:
+
+```python
+PREDICTION_COLUMNS = [
+    "prediction",
+    "probability",
+]
+
+
+def load_prediction_drift_data(
+    reference_path: str,
+    current_path: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    reference_data = pd.read_csv(reference_path)
+    current_data = pd.read_csv(current_path)
+
+    required_columns = FEATURE_COLUMNS + PREDICTION_COLUMNS
+
+    missing_reference_columns = [
+        column for column in required_columns if column not in reference_data.columns
+    ]
+    missing_current_columns = [
+        column for column in required_columns if column not in current_data.columns
+    ]
+
+    if missing_reference_columns:
+        raise ValueError(
+            f"Missing reference prediction columns: {missing_reference_columns}"
+        )
+
+    if missing_current_columns:
+        raise ValueError(
+            f"Missing current prediction columns: {missing_current_columns}"
+        )
+
+    return (
+        reference_data[required_columns].copy(),
+        current_data[required_columns].copy(),
+    )
+
+
+def generate_prediction_drift_report(
+    reference_path: str,
+    current_path: str,
+    html_output_path: str,
+    json_output_path: str,
+) -> None:
+    reference_data, current_data = load_prediction_drift_data(
+        reference_path=reference_path,
+        current_path=current_path,
+    )
+
+    report = Report([DataDriftPreset()])
+    snapshot = report.run(
+        reference_data=reference_data,
+        current_data=current_data,
+    )
+
+    html_path = Path(html_output_path)
+    json_path = Path(json_output_path)
+
+    html_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+
+    snapshot.save_html(str(html_path))
+    snapshot.save_json(str(json_path))
+```
+
+Tests:
+
+```python
+def test_load_prediction_drift_data(tmp_path):
+    reference_path = tmp_path / "reference.csv"
+    current_path = tmp_path / "current.csv"
+
+    data = pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+                "loan_amount": 25000,
+                "credit_score": 700,
+                "employment_years": 5,
+                "debt_to_income": 0.3,
+                "prediction": 1,
+                "probability": 0.91,
+                "extra_column": "ignored",
+            }
+        ]
+    )
+
+    data.to_csv(reference_path, index=False)
+    data.to_csv(current_path, index=False)
+
+    reference_data, current_data = load_prediction_drift_data(
+        reference_path=str(reference_path),
+        current_path=str(current_path),
+    )
+
+    assert list(reference_data.columns) == FEATURE_COLUMNS + PREDICTION_COLUMNS
+    assert list(current_data.columns) == FEATURE_COLUMNS + PREDICTION_COLUMNS
+
+
+def test_load_prediction_drift_data_fails_for_missing_prediction_columns(tmp_path):
+    reference_path = tmp_path / "reference.csv"
+    current_path = tmp_path / "current.csv"
+
+    data = pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+                "loan_amount": 25000,
+                "credit_score": 700,
+                "employment_years": 5,
+                "debt_to_income": 0.3,
+            }
+        ]
+    )
+
+    data.to_csv(reference_path, index=False)
+    data.to_csv(current_path, index=False)
+
+    with pytest.raises(ValueError, match="Missing reference prediction columns"):
+        load_prediction_drift_data(
+            reference_path=str(reference_path),
+            current_path=str(current_path),
+        )
+
+
+def test_generate_prediction_drift_report(tmp_path):
+    reference_path = tmp_path / "reference.csv"
+    current_path = tmp_path / "current.csv"
+    html_output_path = tmp_path / "prediction_drift.html"
+    json_output_path = tmp_path / "prediction_drift.json"
+
+    data = pd.DataFrame(
+        [
+            {
+                "age": 35,
+                "income": 75000,
+                "loan_amount": 25000,
+                "credit_score": 700,
+                "employment_years": 5,
+                "debt_to_income": 0.3,
+                "prediction": 1,
+                "probability": 0.91,
+            },
+            {
+                "age": 45,
+                "income": 95000,
+                "loan_amount": 30000,
+                "credit_score": 720,
+                "employment_years": 10,
+                "debt_to_income": 0.2,
+                "prediction": 0,
+                "probability": 0.30,
+            },
+        ]
+    )
+
+    data.to_csv(reference_path, index=False)
+    data.to_csv(current_path, index=False)
+
+    generate_prediction_drift_report(
+        reference_path=str(reference_path),
+        current_path=str(current_path),
+        html_output_path=str(html_output_path),
+        json_output_path=str(json_output_path),
+    )
+
+    assert html_output_path.exists()
+    assert json_output_path.exists()
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.evidently_drift import generate_prediction_drift_report; generate_prediction_drift_report('data/predictions.csv', 'data/predictions.csv', 'reports/prediction_drift.html', 'reports/prediction_drift.json')"
+ls reports
+```
+
+### Step 93: Add Drift Monitoring Pipeline
+
+Added a single drift monitoring pipeline entry point.
+
+The drift monitoring pipeline runs:
+
+```text
+create reference monitoring dataset
+→ compute input statistics
+→ compute prediction statistics
+→ generate Evidently data drift report
+→ generate Evidently prediction drift report
+```
+
+Implementation:
+
+```python
+from mlops_lr.evidently_drift import (
+    generate_data_drift_report,
+    generate_prediction_drift_report,
+)
+from mlops_lr.input_statistics import compute_input_statistics, save_input_statistics
+from mlops_lr.monitoring_dataset import create_reference_monitoring_dataset
+from mlops_lr.prediction_drift import (
+    compute_prediction_statistics,
+    save_prediction_statistics,
+)
+
+
+def run_drift_monitoring_pipeline() -> None:
+    create_reference_monitoring_dataset(
+        processed_data_path="data/processed.csv",
+        output_path="data/reference_monitoring.csv",
+    )
+
+    input_statistics = compute_input_statistics("data/predictions.csv")
+    save_input_statistics(
+        input_statistics,
+        "reports/input_statistics.csv",
+    )
+
+    prediction_statistics = compute_prediction_statistics("data/predictions.csv")
+    save_prediction_statistics(
+        prediction_statistics,
+        "reports/prediction_statistics.csv",
+    )
+
+    generate_data_drift_report(
+        reference_path="data/reference_monitoring.csv",
+        current_path="data/predictions.csv",
+        html_output_path="reports/data_drift.html",
+        json_output_path="reports/data_drift.json",
+    )
+
+    generate_prediction_drift_report(
+        reference_path="data/predictions.csv",
+        current_path="data/predictions.csv",
+        html_output_path="reports/prediction_drift.html",
+        json_output_path="reports/prediction_drift.json",
+    )
+
+
+if __name__ == "__main__":
+    run_drift_monitoring_pipeline()
+```
+
+Tests:
+
+```python
+from mlops_lr.drift_pipeline import run_drift_monitoring_pipeline
+
+
+def test_run_drift_monitoring_pipeline(monkeypatch):
+    calls = []
+
+    def fake_create_reference_monitoring_dataset(
+        processed_data_path,
+        output_path,
+    ):
+        calls.append(("reference", processed_data_path, output_path))
+
+    def fake_compute_input_statistics(prediction_log_path):
+        calls.append(("input_stats", prediction_log_path))
+        return {"age": {"mean": 35}}
+
+    def fake_save_input_statistics(statistics, output_path):
+        calls.append(("save_input_stats", statistics, output_path))
+
+    def fake_compute_prediction_statistics(prediction_log_path):
+        calls.append(("prediction_stats", prediction_log_path))
+        return {"prediction_rate": 0.5}
+
+    def fake_save_prediction_statistics(statistics, output_path):
+        calls.append(("save_prediction_stats", statistics, output_path))
+
+    def fake_generate_data_drift_report(
+        reference_path,
+        current_path,
+        html_output_path,
+        json_output_path,
+    ):
+        calls.append(
+            (
+                "data_drift",
+                reference_path,
+                current_path,
+                html_output_path,
+                json_output_path,
+            )
+        )
+
+    def fake_generate_prediction_drift_report(
+        reference_path,
+        current_path,
+        html_output_path,
+        json_output_path,
+    ):
+        calls.append(
+            (
+                "prediction_drift",
+                reference_path,
+                current_path,
+                html_output_path,
+                json_output_path,
+            )
+        )
+
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.create_reference_monitoring_dataset",
+        fake_create_reference_monitoring_dataset,
+    )
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.compute_input_statistics",
+        fake_compute_input_statistics,
+    )
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.save_input_statistics",
+        fake_save_input_statistics,
+    )
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.compute_prediction_statistics",
+        fake_compute_prediction_statistics,
+    )
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.save_prediction_statistics",
+        fake_save_prediction_statistics,
+    )
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.generate_data_drift_report",
+        fake_generate_data_drift_report,
+    )
+    monkeypatch.setattr(
+        "mlops_lr.drift_pipeline.generate_prediction_drift_report",
+        fake_generate_prediction_drift_report,
+    )
+
+    run_drift_monitoring_pipeline()
+
+    assert calls[0] == (
+        "reference",
+        "data/processed.csv",
+        "data/reference_monitoring.csv",
+    )
+    assert calls[-1][0] == "prediction_drift"
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+ls reports
+```
+
+### Step 95: Phase 15 Checkpoint
+
+Completed Phase 15: Data and Model Monitoring.
+
+Phase 15 added:
+
+```text
+prediction logging
+input statistics
+prediction statistics
+reference monitoring dataset
+Evidently data drift reports
+Evidently prediction drift reports
+drift monitoring pipeline
+drift monitoring runbook
+```
+
+Phase 15 flow:
+
+```text
+FastAPI predictions
+→ data/predictions.csv
+→ input statistics
+→ prediction statistics
+→ reference monitoring dataset
+→ Evidently drift reports
+→ drift monitoring pipeline
+```
+
+Checkpoint tag:
+
+```text
+v1.3-drift-monitoring
+```
+
+Run final validation:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+ls reports
+```
+
+Create checkpoint tag:
+
+```bash
+git status
+git tag v1.3-drift-monitoring
+git push origin v1.3-drift-monitoring
 ```

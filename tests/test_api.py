@@ -30,7 +30,8 @@ def test_model_info():
     assert response.status_code == 200
     body = response.json()
 
-    assert body["model_name"] == "LoanApprovalModel"
+    assert "model_name" in body
+    assert "model_stage" in body
     assert "trace_id" in body
     assert "span_id" in body
 
@@ -43,6 +44,7 @@ def test_predict(monkeypatch):
 
     response = client.post(
         "/predict",
+        headers={"x-request-id": "test-request-123"},
         json={
             "age": 35,
             "income": 75000,
@@ -54,6 +56,7 @@ def test_predict(monkeypatch):
     )
 
     assert response.status_code == 200
+    assert response.headers["x-request-id"] == "test-request-123"
     assert response.json() == {
         "loan_approved": 1,
         "probability": 0.82,

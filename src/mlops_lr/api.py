@@ -1,10 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Counter, Histogram
 from mlops_lr.tracing import configure_tracing
 from opentelemetry import trace
 from uuid import uuid4
-from fastapi import Request
+
 
 from mlops_lr.config import load_config
 from mlops_lr.model_service import ModelService
@@ -12,6 +12,7 @@ from mlops_lr.schemas import PredictionRequest, PredictionResponse
 import logging
 
 from mlops_lr.json_logging import configure_json_logging
+from mlops_lr.prediction_logging import append_prediction_log, prediction_to_record
 
 configure_json_logging()
 logger = logging.getLogger(__name__)
@@ -92,10 +93,10 @@ def model_info() -> dict[str, str]:
 def predict(payload: PredictionRequest, http_request: Request) -> PredictionResponse:
     PREDICTION_COUNT.inc()
     request_id = http_request.state.request_id
-
     try:
         with tracer.start_as_current_span("model_prediction") as span:
             config = load_config()
+
             span.set_attribute("model.name", config.mlflow.registered_model_name)
             span.set_attribute("model.stage", config.serving.model_stage)
             span.set_attribute("request.credit_score", payload.credit_score)
@@ -108,6 +109,16 @@ def predict(payload: PredictionRequest, http_request: Request) -> PredictionResp
 
             PREDICTION_PROBABILITY.observe(probability)
 
+            trace_context = get_current_trace_context()
+            record = prediction_to_record(
+                request=payload,
+                prediction=prediction,
+                probability=probability,
+                request_id=request_id,
+                trace_id=trace_context["trace_id"],
+            )
+            append_prediction_log(record, config.monitoring.prediction_log_path)
+
             logger.info(
                 "prediction_completed",
                 extra={
@@ -116,9 +127,10 @@ def predict(payload: PredictionRequest, http_request: Request) -> PredictionResp
                     "probability": probability,
                     "credit_score": payload.credit_score,
                     "debt_to_income": payload.debt_to_income,
-                    **get_current_trace_context(),
+                    **trace_context,
                 },
             )
+
     except Exception as error:
         PREDICTION_ERRORS.inc()
         logger.exception(
