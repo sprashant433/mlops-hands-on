@@ -43,6 +43,7 @@ class ServingConfig(BaseModel):
 
 class MonitoringConfig(BaseModel):
     prediction_log_path: str
+    drift_alert_path: str
 
 
 class AppConfig(BaseModel):

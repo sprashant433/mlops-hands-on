@@ -5978,3 +5978,937 @@ git status
 git tag v1.3-drift-monitoring
 git push origin v1.3-drift-monitoring
 ```
+
+### Step 96: Add Drift Alerting
+
+Added drift alerting based on the Evidently data drift JSON report.
+
+The drift alert flow is:
+
+```text
+Evidently data drift JSON
+→ parse drift result
+→ write drift alert JSON
+→ use alert for retraining trigger later
+```
+
+Implementation:
+
+```python
+import json
+from pathlib import Path
+
+
+def load_drift_report(report_path: str) -> dict:
+    return json.loads(Path(report_path).read_text())
+
+
+def extract_dataset_drift(report: dict) -> bool:
+    report_text = json.dumps(report).lower()
+
+    if "dataset_drift" not in report_text:
+        return False
+
+    return "true" in report_text
+
+
+def write_drift_alert(
+    drift_detected: bool,
+    output_path: str,
+) -> None:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    alert = {
+        "drift_detected": drift_detected,
+        "status": "alert" if drift_detected else "ok",
+    }
+
+    path.write_text(json.dumps(alert, indent=2))
+
+
+def evaluate_drift_alert(
+    report_path: str,
+    output_path: str,
+) -> dict:
+    report = load_drift_report(report_path)
+    drift_detected = extract_dataset_drift(report)
+
+    write_drift_alert(
+        drift_detected=drift_detected,
+        output_path=output_path,
+    )
+
+    return {
+        "drift_detected": drift_detected,
+        "status": "alert" if drift_detected else "ok",
+    }
+```
+
+Pipeline integration:
+
+```python
+evaluate_drift_alert(
+    report_path="reports/data_drift.json",
+    output_path="reports/drift_alert.json",
+)
+```
+
+Tests:
+
+```python
+import json
+
+from mlops_lr.drift_alerts import (
+    evaluate_drift_alert,
+    extract_dataset_drift,
+    load_drift_report,
+    write_drift_alert,
+)
+
+
+def test_load_drift_report(tmp_path):
+    report_path = tmp_path / "data_drift.json"
+    report_path.write_text(json.dumps({"dataset_drift": True}))
+
+    report = load_drift_report(str(report_path))
+
+    assert report["dataset_drift"] is True
+
+
+def test_extract_dataset_drift_true():
+    report = {
+        "metrics": [
+            {
+                "result": {
+                    "dataset_drift": True,
+                }
+            }
+        ]
+    }
+
+    assert extract_dataset_drift(report) is True
+
+
+def test_extract_dataset_drift_false_when_missing():
+    report = {
+        "metrics": []
+    }
+
+    assert extract_dataset_drift(report) is False
+
+
+def test_write_drift_alert(tmp_path):
+    output_path = tmp_path / "drift_alert.json"
+
+    write_drift_alert(
+        drift_detected=True,
+        output_path=str(output_path),
+    )
+
+    alert = json.loads(output_path.read_text())
+
+    assert alert["drift_detected"] is True
+    assert alert["status"] == "alert"
+
+
+def test_evaluate_drift_alert(tmp_path):
+    report_path = tmp_path / "data_drift.json"
+    output_path = tmp_path / "drift_alert.json"
+
+    report_path.write_text(json.dumps({"dataset_drift": True}))
+
+    alert = evaluate_drift_alert(
+        report_path=str(report_path),
+        output_path=str(output_path),
+    )
+
+    assert alert["drift_detected"] is True
+    assert alert["status"] == "alert"
+    assert output_path.exists()
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+cat reports/drift_alert.json
+```
+
+### Step 97: Add Prometheus Drift Alert
+
+Added a Prometheus metric and alert rule for drift detection.
+
+The drift alert flow is:
+
+```text
+reports/drift_alert.json
+→ FastAPI /metrics
+→ Prometheus scrape
+→ Prometheus alert rule
+```
+
+Configuration:
+
+```yaml
+monitoring:
+  prediction_log_path: data/predictions.csv
+  drift_alert_path: reports/drift_alert.json
+```
+
+Implementation:
+
+```python
+import json
+from pathlib import Path
+
+from prometheus_client import Gauge
+
+
+DRIFT_DETECTED = Gauge(
+    "model_drift_detected",
+    "Whether model/data drift has been detected. 1 means drift alert, 0 means ok.",
+)
+
+
+def read_drift_alert_status(alert_path: str) -> float:
+    path = Path(alert_path)
+
+    if not path.exists():
+        return 0.0
+
+    alert = json.loads(path.read_text())
+
+    if alert.get("drift_detected") is True:
+        return 1.0
+
+    if alert.get("status") == "alert":
+        return 1.0
+
+    return 0.0
+
+
+def update_drift_metric(alert_path: str) -> float:
+    drift_value = read_drift_alert_status(alert_path)
+    DRIFT_DETECTED.set(drift_value)
+
+    return drift_value
+```
+
+FastAPI metrics refresh:
+
+```python
+@app.middleware("http")
+async def refresh_drift_metric(request: Request, call_next):
+    if request.url.path == "/metrics":
+        config = load_config()
+        update_drift_metric(config.monitoring.drift_alert_path)
+
+    response = await call_next(request)
+
+    return response
+```
+
+Prometheus alert rule:
+
+```yaml
+groups:
+  - name: mlops-drift-alerts
+    rules:
+      - alert: ModelDriftDetected
+        expr: model_drift_detected == 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Model or data drift detected
+          description: Evidently drift monitoring reported drift_detected=true.
+```
+
+Tests:
+
+```python
+import json
+
+from mlops_lr.drift_metrics import read_drift_alert_status, update_drift_metric
+
+
+def test_read_drift_alert_status_returns_zero_when_missing(tmp_path):
+    alert_path = tmp_path / "missing_alert.json"
+
+    assert read_drift_alert_status(str(alert_path)) == 0.0
+
+
+def test_read_drift_alert_status_returns_one_for_alert(tmp_path):
+    alert_path = tmp_path / "drift_alert.json"
+    alert_path.write_text(
+        json.dumps(
+            {
+                "drift_detected": True,
+                "status": "alert",
+            }
+        )
+    )
+
+    assert read_drift_alert_status(str(alert_path)) == 1.0
+
+
+def test_read_drift_alert_status_returns_zero_for_ok(tmp_path):
+    alert_path = tmp_path / "drift_alert.json"
+    alert_path.write_text(
+        json.dumps(
+            {
+                "drift_detected": False,
+                "status": "ok",
+            }
+        )
+    )
+
+    assert read_drift_alert_status(str(alert_path)) == 0.0
+
+
+def test_update_drift_metric(tmp_path):
+    alert_path = tmp_path / "drift_alert.json"
+    alert_path.write_text(
+        json.dumps(
+            {
+                "drift_detected": True,
+                "status": "alert",
+            }
+        )
+    )
+
+    assert update_drift_metric(str(alert_path)) == 1.0
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+docker compose up -d --build api prometheus
+curl http://127.0.0.1:8000/metrics | grep model_drift_detected
+```
+
+Check Prometheus:
+
+```text
+http://127.0.0.1:9090
+```
+
+Query:
+
+```promql
+model_drift_detected
+```
+
+Check alerts:
+
+```text
+http://127.0.0.1:9090/alerts
+```
+
+### Step 98: Add Grafana Drift Alert Panel
+
+Added a Grafana dashboard panel for drift alert status.
+
+The drift alert dashboard flow is:
+
+```text
+reports/drift_alert.json
+→ FastAPI /metrics
+→ Prometheus model_drift_detected
+→ Grafana stat panel
+```
+
+Implementation:
+
+```json
+{
+  "type": "stat",
+  "title": "Model Drift Alert",
+  "gridPos": { "x": 0, "y": 24, "w": 8, "h": 6 },
+  "targets": [
+    {
+      "expr": "model_drift_detected",
+      "legendFormat": "drift detected",
+      "refId": "A"
+    }
+  ],
+  "fieldConfig": {
+    "defaults": {
+      "mappings": [
+        {
+          "type": "value",
+          "options": {
+            "0": {
+              "text": "OK",
+              "color": "green"
+            },
+            "1": {
+              "text": "DRIFT",
+              "color": "red"
+            }
+          }
+        }
+      ],
+      "thresholds": {
+        "mode": "absolute",
+        "steps": [
+          {
+            "color": "green",
+            "value": null
+          },
+          {
+            "color": "red",
+            "value": 1
+          }
+        ]
+      }
+    },
+    "overrides": []
+  },
+  "options": {
+    "reduceOptions": {
+      "values": false,
+      "calcs": ["lastNotNull"],
+      "fields": ""
+    },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "background",
+    "graphMode": "none",
+    "justifyMode": "auto"
+  }
+}
+```
+
+Run:
+
+```bash
+python -m json.tool monitoring/grafana/dashboards/mlops-api-dashboard.json > /tmp/mlops-dashboard.json
+docker compose restart grafana
+docker logs mlops-grafana --tail 50
+```
+
+Check Prometheus metric:
+
+```bash
+curl http://127.0.0.1:8000/metrics | grep model_drift_detected
+```
+
+Open Grafana:
+
+```text
+http://127.0.0.1:3000
+```
+
+Open dashboard:
+
+```text
+Dashboards → MLOps API Monitoring
+```
+
+Expected panel:
+
+```text
+Model Drift Alert
+```
+
+Expected values:
+
+```text
+0 = OK
+1 = DRIFT
+```
+
+### Step 99: Add Retraining Trigger From Drift Alert
+
+Added a file-based retraining trigger that reacts to drift alerts.
+
+The retraining trigger flow is:
+
+```text
+reports/drift_alert.json
+→ evaluate retraining condition
+→ reports/retraining_trigger.json
+→ retraining pipeline later
+```
+
+Implementation:
+
+```python
+import json
+from pathlib import Path
+
+
+def load_drift_alert(alert_path: str) -> dict:
+    path = Path(alert_path)
+
+    if not path.exists():
+        return {
+            "drift_detected": False,
+            "status": "missing",
+        }
+
+    return json.loads(path.read_text())
+
+
+def should_trigger_retraining(alert: dict) -> bool:
+    return alert.get("drift_detected") is True or alert.get("status") == "alert"
+
+
+def write_retraining_trigger(
+    should_retrain: bool,
+    output_path: str,
+) -> None:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    trigger = {
+        "should_retrain": should_retrain,
+        "status": "triggered" if should_retrain else "skipped",
+    }
+
+    path.write_text(json.dumps(trigger, indent=2))
+
+
+def evaluate_retraining_trigger(
+    alert_path: str,
+    output_path: str,
+) -> dict:
+    alert = load_drift_alert(alert_path)
+    should_retrain = should_trigger_retraining(alert)
+
+    write_retraining_trigger(
+        should_retrain=should_retrain,
+        output_path=output_path,
+    )
+
+    return {
+        "should_retrain": should_retrain,
+        "status": "triggered" if should_retrain else "skipped",
+    }
+```
+
+Tests:
+
+```python
+import json
+
+from mlops_lr.retraining_trigger import (
+    evaluate_retraining_trigger,
+    load_drift_alert,
+    should_trigger_retraining,
+    write_retraining_trigger,
+)
+
+
+def test_load_drift_alert_returns_missing_when_file_does_not_exist(tmp_path):
+    alert_path = tmp_path / "missing.json"
+
+    alert = load_drift_alert(str(alert_path))
+
+    assert alert["drift_detected"] is False
+    assert alert["status"] == "missing"
+
+
+def test_should_trigger_retraining_for_drift_detected():
+    alert = {
+        "drift_detected": True,
+        "status": "alert",
+    }
+
+    assert should_trigger_retraining(alert) is True
+
+
+def test_should_not_trigger_retraining_for_ok_alert():
+    alert = {
+        "drift_detected": False,
+        "status": "ok",
+    }
+
+    assert should_trigger_retraining(alert) is False
+
+
+def test_write_retraining_trigger(tmp_path):
+    output_path = tmp_path / "retraining_trigger.json"
+
+    write_retraining_trigger(
+        should_retrain=True,
+        output_path=str(output_path),
+    )
+
+    trigger = json.loads(output_path.read_text())
+
+    assert trigger["should_retrain"] is True
+    assert trigger["status"] == "triggered"
+
+
+def test_evaluate_retraining_trigger(tmp_path):
+    alert_path = tmp_path / "drift_alert.json"
+    output_path = tmp_path / "retraining_trigger.json"
+
+    alert_path.write_text(
+        json.dumps(
+            {
+                "drift_detected": True,
+                "status": "alert",
+            }
+        )
+    )
+
+    trigger = evaluate_retraining_trigger(
+        alert_path=str(alert_path),
+        output_path=str(output_path),
+    )
+
+    assert trigger["should_retrain"] is True
+    assert trigger["status"] == "triggered"
+    assert output_path.exists()
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python -c "from mlops_lr.retraining_trigger import evaluate_retraining_trigger; evaluate_retraining_trigger('reports/drift_alert.json', 'reports/retraining_trigger.json')"
+cat reports/retraining_trigger.json
+```
+
+### Step 100: Integrate Retraining Trigger Into Drift Pipeline
+
+Integrated the retraining trigger into the drift monitoring pipeline.
+
+The updated drift pipeline runs:
+
+```text
+create reference monitoring dataset
+→ compute input statistics
+→ compute prediction statistics
+→ generate Evidently data drift report
+→ generate Evidently prediction drift report
+→ evaluate drift alert
+→ evaluate retraining trigger
+```
+
+Implementation:
+
+```python
+from mlops_lr.retraining_trigger import evaluate_retraining_trigger
+```
+
+Pipeline integration:
+
+```python
+evaluate_drift_alert(
+    report_path="reports/data_drift.json",
+    output_path="reports/drift_alert.json",
+)
+
+evaluate_retraining_trigger(
+    alert_path="reports/drift_alert.json",
+    output_path="reports/retraining_trigger.json",
+)
+```
+
+Tests:
+
+```python
+def fake_evaluate_retraining_trigger(alert_path, output_path):
+    calls.append(("retraining_trigger", alert_path, output_path))
+
+
+monkeypatch.setattr(
+    "mlops_lr.drift_pipeline.evaluate_retraining_trigger",
+    fake_evaluate_retraining_trigger,
+)
+
+assert calls[-1] == (
+    "retraining_trigger",
+    "reports/drift_alert.json",
+    "reports/retraining_trigger.json",
+)
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+cat reports/drift_alert.json
+cat reports/retraining_trigger.json
+```
+
+### Step 101: Add Retraining Pipeline Script
+
+Added a retraining pipeline script that runs only when drift is detected.
+
+The retraining flow is:
+
+```text
+reports/drift_alert.json
+→ check drift status
+→ skip if no drift
+→ run training pipeline if drift detected
+→ return retraining result
+```
+
+Implementation:
+
+```python
+from mlops_lr.pipeline import run_pipeline
+from mlops_lr.retraining_trigger import load_drift_alert, should_trigger_retraining
+
+
+def run_retraining_pipeline(
+    alert_path: str = "reports/drift_alert.json",
+) -> dict:
+    alert = load_drift_alert(alert_path)
+
+    if not should_trigger_retraining(alert):
+        return {
+            "status": "skipped",
+            "reason": "drift_not_detected",
+        }
+
+    metrics = run_pipeline()
+
+    return {
+        "status": "retrained",
+        "metrics": metrics,
+    }
+
+
+if __name__ == "__main__":
+    result = run_retraining_pipeline()
+    print(result)
+```
+
+Tests:
+
+```python
+import json
+
+from mlops_lr.retraining_pipeline import run_retraining_pipeline
+
+
+def test_run_retraining_pipeline_skips_when_no_drift(tmp_path):
+    alert_path = tmp_path / "drift_alert.json"
+    alert_path.write_text(
+        json.dumps(
+            {
+                "drift_detected": False,
+                "status": "ok",
+            }
+        )
+    )
+
+    result = run_retraining_pipeline(alert_path=str(alert_path))
+
+    assert result == {
+        "status": "skipped",
+        "reason": "drift_not_detected",
+    }
+
+
+def test_run_retraining_pipeline_runs_when_drift_detected(monkeypatch, tmp_path):
+    alert_path = tmp_path / "drift_alert.json"
+    alert_path.write_text(
+        json.dumps(
+            {
+                "drift_detected": True,
+                "status": "alert",
+            }
+        )
+    )
+
+    def fake_run_pipeline():
+        return {
+            "accuracy": 0.9,
+            "precision": 0.8,
+        }
+
+    monkeypatch.setattr(
+        "mlops_lr.retraining_pipeline.run_pipeline",
+        fake_run_pipeline,
+    )
+
+    result = run_retraining_pipeline(alert_path=str(alert_path))
+
+    assert result == {
+        "status": "retrained",
+        "metrics": {
+            "accuracy": 0.9,
+            "precision": 0.8,
+        },
+    }
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
+```
+
+### Step 102: Add Retraining Result Report
+
+Added a retraining result report.
+
+The retraining result flow is:
+
+```text
+retraining pipeline
+→ skipped or retrained result
+→ reports/retraining_result.json
+```
+
+Implementation:
+
+```python
+import json
+from pathlib import Path
+
+
+def save_retraining_result(
+    result: dict,
+    output_path: str,
+) -> None:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    path.write_text(json.dumps(result, indent=2))
+
+
+def run_retraining_pipeline(
+    alert_path: str = "reports/drift_alert.json",
+    output_path: str = "reports/retraining_result.json",
+) -> dict:
+    alert = load_drift_alert(alert_path)
+
+    if not should_trigger_retraining(alert):
+        result = {
+            "status": "skipped",
+            "reason": "drift_not_detected",
+        }
+        save_retraining_result(result, output_path)
+        return result
+
+    metrics = run_pipeline()
+
+    result = {
+        "status": "retrained",
+        "metrics": metrics,
+    }
+    save_retraining_result(result, output_path)
+
+    return result
+```
+
+Tests:
+
+```python
+def test_save_retraining_result(tmp_path):
+    output_path = tmp_path / "retraining_result.json"
+    result = {
+        "status": "skipped",
+        "reason": "drift_not_detected",
+    }
+
+    save_retraining_result(result, str(output_path))
+
+    saved = json.loads(output_path.read_text())
+
+    assert saved == result
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
+cat reports/retraining_result.json
+```
+
+### Step 103: Phase 15 Final Checkpoint
+
+Completed Phase 15: Data and Model Monitoring.
+
+Phase 15 added:
+
+```text
+prediction logging
+input statistics
+prediction statistics
+reference monitoring dataset
+Evidently data drift reports
+Evidently prediction drift reports
+drift monitoring pipeline
+drift monitoring runbook
+drift alerting
+Prometheus drift alert metric
+Grafana drift alert panel
+retraining trigger
+retraining pipeline
+retraining result report
+```
+
+Final Phase 15 flow:
+
+```text
+FastAPI prediction
+→ data/predictions.csv
+→ input statistics
+→ prediction statistics
+→ reference monitoring dataset
+→ Evidently drift reports
+→ reports/drift_alert.json
+→ model_drift_detected Prometheus metric
+→ Grafana drift alert panel
+→ reports/retraining_trigger.json
+→ retraining pipeline
+→ reports/retraining_result.json
+```
+
+Run final validation:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
+cat reports/drift_alert.json
+cat reports/retraining_trigger.json
+cat reports/retraining_result.json
+curl http://127.0.0.1:8000/metrics | grep model_drift_detected
+```
+
+Phase checkpoint tag:
+
+```text
+v1.3-drift-monitoring
+```
+
+Commands:
+
+```bash
+git checkout main
+git merge --no-ff develop -m "merge: develop into main"
+git tag v1.3-drift-monitoring
+git checkout develop
+```

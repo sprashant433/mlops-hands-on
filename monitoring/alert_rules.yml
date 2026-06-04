@@ -1,0 +1,11 @@
+groups:
+  - name: mlops-drift-alerts
+    rules:
+      - alert: ModelDriftDetected
+        expr: model_drift_detected == 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Model or data drift detected
+          description: Evidently drift monitoring reported drift_detected=true.
