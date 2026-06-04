@@ -3771,18 +3771,14 @@ Expected log shape:
 
 Added centralized log collection using Loki and Promtail.
 
-Log flow:
+The log flow is:
 
 ```text
 FastAPI JSON logs
-    ↓
-Docker logs
-    ↓
-Promtail
-    ↓
-Loki
-    ↓
-Grafana
+→ Docker container logs
+→ Promtail
+→ Loki
+→ Grafana
 ```
 
 Promtail config:
@@ -3800,17 +3796,12 @@ clients:
 
 scrape_configs:
   - job_name: docker-containers
-    docker_sd_configs:
-      - host: unix:///var/run/docker.sock
-        refresh_interval: 5s
-
-    relabel_configs:
-      - source_labels: ["__meta_docker_container_name"]
-        target_label: "container"
-      - source_labels: ["__meta_docker_container_log_stream"]
-        target_label: "stream"
-      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
-        target_label: "compose_service"
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker
+          __path__: /var/lib/docker/containers/*/*-json.log
 ```
 
 Docker Compose services:
@@ -3828,6 +3819,7 @@ Docker Compose services:
     container_name: mlops-promtail
     volumes:
       - ./monitoring/promtail-config.yml:/etc/promtail/config.yml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock
     command: -config.file=/etc/promtail/config.yml
     depends_on:
@@ -3847,8 +3839,12 @@ Grafana Loki datasource:
 Run:
 
 ```bash
+python -c "import yaml; yaml.safe_load(open('monitoring/promtail-config.yml'))"
 docker compose up -d
 docker compose ps
+docker logs mlops-loki --tail 50
+docker logs mlops-promtail --tail 50
+curl http://127.0.0.1:3100/ready
 ```
 
 Generate logs:
@@ -3881,7 +3877,7 @@ Explore → Loki
 Query:
 
 ```logql
-{job="docker"}|= "prediction_completed"
+{job="docker"} |= "prediction_completed"
 ```
 
 ### Step 78: Add Log Correlation IDs
