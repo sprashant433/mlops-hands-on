@@ -6582,3 +6582,69 @@ PYTHONPATH=src pytest
 PYTHONPATH=src python -c "from mlops_lr.retraining_trigger import evaluate_retraining_trigger; evaluate_retraining_trigger('reports/drift_alert.json', 'reports/retraining_trigger.json')"
 cat reports/retraining_trigger.json
 ```
+
+### Step 100: Integrate Retraining Trigger Into Drift Pipeline
+
+Integrated the retraining trigger into the drift monitoring pipeline.
+
+The updated drift pipeline runs:
+
+```text
+create reference monitoring dataset
+→ compute input statistics
+→ compute prediction statistics
+→ generate Evidently data drift report
+→ generate Evidently prediction drift report
+→ evaluate drift alert
+→ evaluate retraining trigger
+```
+
+Implementation:
+
+```python
+from mlops_lr.retraining_trigger import evaluate_retraining_trigger
+```
+
+Pipeline integration:
+
+```python
+evaluate_drift_alert(
+    report_path="reports/data_drift.json",
+    output_path="reports/drift_alert.json",
+)
+
+evaluate_retraining_trigger(
+    alert_path="reports/drift_alert.json",
+    output_path="reports/retraining_trigger.json",
+)
+```
+
+Tests:
+
+```python
+def fake_evaluate_retraining_trigger(alert_path, output_path):
+    calls.append(("retraining_trigger", alert_path, output_path))
+
+
+monkeypatch.setattr(
+    "mlops_lr.drift_pipeline.evaluate_retraining_trigger",
+    fake_evaluate_retraining_trigger,
+)
+
+assert calls[-1] == (
+    "retraining_trigger",
+    "reports/drift_alert.json",
+    "reports/retraining_trigger.json",
+)
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+cat reports/drift_alert.json
+cat reports/retraining_trigger.json
+```

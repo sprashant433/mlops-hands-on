@@ -9,6 +9,7 @@ from mlops_lr.prediction_drift import (
     save_prediction_statistics,
 )
 from mlops_lr.drift_alerts import evaluate_drift_alert
+from mlops_lr.retraining_trigger import evaluate_retraining_trigger
 
 
 def run_drift_monitoring_pipeline() -> None:
@@ -43,10 +44,15 @@ def run_drift_monitoring_pipeline() -> None:
         json_output_path="reports/prediction_drift.json",
     )
 
-
-if __name__ == "__main__":
-    run_drift_monitoring_pipeline()
     evaluate_drift_alert(
         report_path="reports/data_drift.json",
         output_path="reports/drift_alert.json",
     )
+    evaluate_retraining_trigger(
+        alert_path="reports/drift_alert.json",
+        output_path="reports/retraining_trigger.json",
+    )
+
+
+if __name__ == "__main__":
+    run_drift_monitoring_pipeline()
