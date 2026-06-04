@@ -4179,7 +4179,7 @@ locust -f locustfile.py --host http://127.0.0.1:8000
 Open Locust:
 
 ```text
-http://127.0.0.1:8089
+2
 ```
 
 Start with:
@@ -4250,6 +4250,26 @@ If Locust cannot connect:
 3. Open http://127.0.0.1:8000/health.
 4. Confirm Locust host is http://127.0.0.1:8000.
 ```
+
+Added test:
+
+```text
+tests/test_locustfile.py
+```
+
+Test implementation:
+
+```python
+from locustfile import LoanApprovalUser
+
+
+def test_loan_approval_user_has_tasks():
+    tasks = LoanApprovalUser.tasks
+
+    assert len(tasks) > 0
+```
+
+This test verifies that the Locust user class imports correctly and has registered tasks.
 
 Commit changes:
 
