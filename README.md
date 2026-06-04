@@ -4499,3 +4499,107 @@ python scripts/summarize_load_test.py \
   --output-path reports/load_tests/locust_10_users_summary.json
 cat reports/load_tests/locust_10_users_summary.json
 ```
+
+### Step 83: Add Load Test Threshold Check
+
+Added threshold validation for Locust load test summaries.
+
+The threshold check validates:
+
+```text
+failure count
+average response time
+```
+
+Implementation:
+
+```python
+def validate_thresholds(
+    summary: dict[str, float],
+    max_failure_count: float,
+    max_average_response_time_ms: float,
+) -> None:
+    if summary["failure_count"] > max_failure_count:
+        raise ValueError(
+            "Load test failed: "
+            f"failure_count={summary['failure_count']} "
+            f"> max_failure_count={max_failure_count}"
+        )
+
+    if summary["average_response_time_ms"] > max_average_response_time_ms:
+        raise ValueError(
+            "Load test failed: "
+            f"average_response_time_ms={summary['average_response_time_ms']} "
+            f"> max_average_response_time_ms={max_average_response_time_ms}"
+        )
+```
+
+CLI arguments:
+
+```python
+parser.add_argument("--max-failure-count", type=float, default=0)
+parser.add_argument("--max-average-response-time-ms", type=float, default=500)
+```
+
+Tests:
+
+```python
+import pytest
+
+from scripts.summarize_load_test import validate_thresholds
+
+
+def test_validate_thresholds_passes():
+    summary = {
+        "failure_count": 0,
+        "average_response_time_ms": 100,
+    }
+
+    validate_thresholds(
+        summary,
+        max_failure_count=0,
+        max_average_response_time_ms=500,
+    )
+
+
+def test_validate_thresholds_fails_for_failures():
+    summary = {
+        "failure_count": 1,
+        "average_response_time_ms": 100,
+    }
+
+    with pytest.raises(ValueError, match="failure_count"):
+        validate_thresholds(
+            summary,
+            max_failure_count=0,
+            max_average_response_time_ms=500,
+        )
+
+
+def test_validate_thresholds_fails_for_slow_response():
+    summary = {
+        "failure_count": 0,
+        "average_response_time_ms": 800,
+    }
+
+    with pytest.raises(ValueError, match="average_response_time_ms"):
+        validate_thresholds(
+            summary,
+            max_failure_count=0,
+            max_average_response_time_ms=500,
+        )
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+python scripts/summarize_load_test.py \
+  --stats-path reports/load_tests/locust_10_users_stats.csv \
+  --output-path reports/load_tests/locust_10_users_summary.json \
+  --max-failure-count 0 \
+  --max-average-response-time-ms 500
+cat reports/load_tests/locust_10_users_summary.json
+```
