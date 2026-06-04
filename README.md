@@ -5149,3 +5149,60 @@ PYTHONPATH=src pytest
 PYTHONPATH=src python -c "from mlops_lr.prediction_drift import compute_prediction_statistics, save_prediction_statistics; stats = compute_prediction_statistics('data/predictions.csv'); save_prediction_statistics(stats, 'reports/prediction_statistics.csv')"
 cat reports/prediction_statistics.csv
 ```
+
+### Step 89: Add Evidently Dependency
+
+Added Evidently AI for data and prediction drift monitoring.
+
+Evidently will be used to compare reference data against current prediction logs.
+
+The drift monitoring flow will be:
+
+```text
+reference data
+→ current prediction data
+→ Evidently drift report
+→ HTML / JSON report
+→ drift monitoring decision
+```
+
+Dependency:
+
+```text
+evidently==0.7.11
+```
+
+Why this version is pinned:
+
+```text
+The project currently uses Python 3.9.
+Newer Evidently versions require Python 3.10+.
+Evidently 0.7.11 supports Python 3.8+.
+```
+
+Implementation:
+
+```text
+evidently==0.7.11
+```
+
+Tests:
+
+```python
+from importlib.metadata import version
+
+
+def test_evidently_dependency_installed():
+    installed_version = version("evidently")
+
+    assert installed_version == "0.7.11"
+```
+
+Run:
+
+```bash
+pip install -r requirements.txt
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+```
