@@ -4139,7 +4139,7 @@ Expected log query:
 {job="docker"} |= "dashboard-test-123"
 ```
 
-### Step 80: Locust Load Testing
+### Step 80: Add Locust Load Testing
 
 Added Locust load testing for the FastAPI inference API.
 
@@ -4151,6 +4151,13 @@ health checks
 → Prometheus metrics update
 → Grafana dashboard updates
 → Loki logs are generated
+```
+
+Dependencies:
+
+```text
+locust
+setuptools<81
 ```
 
 Implementation:
@@ -4187,13 +4194,22 @@ class LoanApprovalUser(HttpUser):
 Tests:
 
 ```python
-from locustfile import LoanApprovalUser
+from pathlib import Path
 
 
-def test_loan_approval_user_has_tasks():
-    tasks = LoanApprovalUser.tasks
+def test_locustfile_exists():
+    locustfile = Path("locustfile.py")
 
-    assert len(tasks) > 0
+    assert locustfile.exists()
+
+
+def test_locustfile_defines_loan_approval_user():
+    content = Path("locustfile.py").read_text()
+
+    assert "class LoanApprovalUser" in content
+    assert "def predict" in content
+    assert "def health" in content
+    assert "locust-load-test" in content
 ```
 
 Run:
