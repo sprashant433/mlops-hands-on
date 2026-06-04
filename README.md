@@ -4603,3 +4603,92 @@ python scripts/summarize_load_test.py \
   --max-average-response-time-ms 500
 cat reports/load_tests/locust_10_users_summary.json
 ```
+
+### Step 84: Add CI Load Test Job
+
+Added a CI job that runs a small headless Locust load test.
+
+The CI load test flow is:
+
+```text
+GitHub Actions
+→ build API container
+→ run Locust headless test
+→ export CSV reports
+→ summarize results
+→ validate thresholds
+→ upload reports as artifact
+```
+
+Implementation:
+
+```yaml
+  load-test:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Start API stack
+        run: |
+          docker compose up -d --build api
+          sleep 15
+
+      - name: Run Locust headless load test
+        run: |
+          locust -f locustfile.py \
+            --host http://127.0.0.1:8000 \
+            --users 5 \
+            --spawn-rate 1 \
+            --run-time 30s \
+            --headless \
+            --csv reports/load_tests/ci_locust
+
+      - name: Summarize and validate load test
+        run: |
+          python scripts/summarize_load_test.py \
+            --stats-path reports/load_tests/ci_locust_stats.csv \
+            --output-path reports/load_tests/ci_locust_summary.json \
+            --max-failure-count 0 \
+            --max-average-response-time-ms 1000
+
+      - name: Upload load test reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-reports
+          path: reports/load_tests/
+```
+
+Run locally before pushing:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+docker compose up -d --build api
+locust -f locustfile.py \
+  --host http://127.0.0.1:8000 \
+  --users 5 \
+  --spawn-rate 1 \
+  --run-time 30s \
+  --headless \
+  --csv reports/load_tests/ci_locust
+python scripts/summarize_load_test.py \
+  --stats-path reports/load_tests/ci_locust_stats.csv \
+  --output-path reports/load_tests/ci_locust_summary.json \
+  --max-failure-count 0 \
+  --max-average-response-time-ms 1000
+cat reports/load_tests/ci_locust_summary.json
+```
