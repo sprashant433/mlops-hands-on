@@ -364,3 +364,31 @@ Check service:
 ```text
 mlops-logistic-regression-api
 ```
+
+## Loki
+
+Apply Loki manifests:
+
+```bash
+kubectl apply -f k8s/loki-deployment.yaml
+kubectl apply -f k8s/loki-service.yaml
+```
+
+Check rollout:
+
+```bash
+kubectl rollout status deployment/loki -n mlops-local
+kubectl get pods -n mlops-local
+```
+
+Port forward:
+
+```bash
+kubectl port-forward -n mlops-local service/loki-service 3100:3100
+```
+
+Check readiness:
+
+```bash
+curl http://127.0.0.1:3100/ready
+```

@@ -8028,3 +8028,80 @@ Check:
 http://127.0.0.1:16686
 service: mlops-logistic-regression-api
 ```
+
+### Step 118: Add Kubernetes Loki Deployment
+
+Added Loki to Kubernetes for log storage.
+
+Loki flow:
+
+```text
+Promtail later
+→ Loki service
+→ Grafana Loki datasource later
+```
+
+Loki deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: mlops-local
+  labels:
+    app: loki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+        - name: loki
+          image: grafana/loki:latest
+          args:
+            - -config.file=/etc/loki/local-config.yaml
+          ports:
+            - containerPort: 3100
+```
+
+Loki service:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-service
+  namespace: mlops-local
+  labels:
+    app: loki
+spec:
+  type: ClusterIP
+  selector:
+    app: loki
+  ports:
+    - name: http
+      port: 3100
+      targetPort: 3100
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/loki-deployment.yaml
+kubectl apply -f k8s/loki-service.yaml
+kubectl rollout status deployment/loki -n mlops-local
+kubectl get pods -n mlops-local
+kubectl port-forward -n mlops-local service/loki-service 3100:3100
+```
+
+Check Loki:
+
+```bash
+curl http://127.0.0.1:3100/ready
+```
