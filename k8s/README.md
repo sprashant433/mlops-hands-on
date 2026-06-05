@@ -252,3 +252,36 @@ Login:
 username: admin
 password: admin
 ```
+
+## Grafana Dashboard Provisioning
+
+Apply dashboard ConfigMap:
+
+```bash
+kubectl apply -f k8s/grafana-dashboard-configmap.yaml
+```
+
+Apply updated Grafana deployment:
+
+```bash
+kubectl apply -f k8s/grafana-deployment.yaml
+```
+
+Restart Grafana:
+
+```bash
+kubectl rollout restart deployment/grafana -n mlops-local
+kubectl rollout status deployment/grafana -n mlops-local
+```
+
+Open Grafana:
+
+```bash
+kubectl port-forward -n mlops-local service/grafana-service 3000:3000
+```
+
+Go to:
+
+```text
+Dashboards → MLOps → MLOps API Monitoring - Kubernetes
+```

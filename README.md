@@ -7653,3 +7653,82 @@ Check datasource:
 ```text
 Connections → Data sources → Prometheus
 ```
+
+### Step 114: Add Kubernetes Grafana Dashboard Provisioning
+
+Added Grafana dashboard provisioning for Kubernetes.
+
+The dashboard provisioning flow is:
+
+```text
+Grafana ConfigMap
+→ dashboard provider config
+→ dashboard JSON
+→ Grafana MLOps folder
+```
+
+Dashboard ConfigMap:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: mlops-local
+data:
+  dashboard.yml: |
+    apiVersion: 1
+
+    providers:
+      - name: MLOps Dashboards
+        orgId: 1
+        folder: MLOps
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+```
+
+Dashboard panels:
+
+```text
+Prediction Requests
+Prediction Errors
+Request Latency
+Model Drift Alert
+```
+
+Grafana deployment mounts:
+
+```yaml
+volumeMounts:
+  - name: grafana-datasources
+    mountPath: /etc/grafana/provisioning/datasources
+  - name: grafana-dashboard-provisioning
+    mountPath: /etc/grafana/provisioning/dashboards
+  - name: grafana-dashboards
+    mountPath: /var/lib/grafana/dashboards
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/grafana-dashboard-configmap.yaml
+kubectl apply -f k8s/grafana-deployment.yaml
+kubectl rollout restart deployment/grafana -n mlops-local
+kubectl rollout status deployment/grafana -n mlops-local
+kubectl port-forward -n mlops-local service/grafana-service 3000:3000
+```
+
+Open Grafana:
+
+```text
+http://127.0.0.1:3000
+```
+
+Check dashboard:
+
+```text
+Dashboards → MLOps → MLOps API Monitoring - Kubernetes
+```
