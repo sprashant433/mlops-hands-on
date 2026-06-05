@@ -7524,3 +7524,132 @@ Expected target:
 ```text
 job="mlops-api"
 ```
+
+### Step 113: Add Kubernetes Grafana Deployment
+
+Added Grafana to Kubernetes with a provisioned Prometheus datasource.
+
+Grafana flow:
+
+```text
+Grafana pod
+→ Prometheus datasource
+→ prometheus-service:9090
+→ MLOps API metrics
+```
+
+Grafana datasource ConfigMap:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: mlops-local
+data:
+  prometheus.yml: |
+    apiVersion: 1
+
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus-service:9090
+        isDefault: true
+```
+
+Grafana deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: mlops-local
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: admin
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: admin
+          volumeMounts:
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: grafana-datasources
+          configMap:
+            name: grafana-datasources
+```
+
+Grafana service:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: mlops-local
+  labels:
+    app: grafana
+spec:
+  type: ClusterIP
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/grafana-datasource-configmap.yaml
+kubectl apply -f k8s/grafana-deployment.yaml
+kubectl apply -f k8s/grafana-service.yaml
+kubectl rollout status deployment/grafana -n mlops-local
+kubectl get pods -n mlops-local
+kubectl port-forward -n mlops-local service/grafana-service 3000:3000
+```
+
+Open Grafana:
+
+```text
+http://127.0.0.1:3000
+```
+
+Login:
+
+```text
+username: admin
+password: admin
+```
+
+Check datasource:
+
+```text
+Connections → Data sources → Prometheus
+```

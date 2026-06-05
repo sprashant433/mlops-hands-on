@@ -217,3 +217,38 @@ Query:
 up
 ```
 
+## Grafana
+
+Apply Grafana manifests:
+
+```bash
+kubectl apply -f k8s/grafana-datasource-configmap.yaml
+kubectl apply -f k8s/grafana-deployment.yaml
+kubectl apply -f k8s/grafana-service.yaml
+```
+
+Check rollout:
+
+```bash
+kubectl rollout status deployment/grafana -n mlops-local
+kubectl get pods -n mlops-local
+```
+
+Port forward:
+
+```bash
+kubectl port-forward -n mlops-local service/grafana-service 3000:3000
+```
+
+Open:
+
+```text
+http://127.0.0.1:3000
+```
+
+Login:
+
+```text
+username: admin
+password: admin
+```
