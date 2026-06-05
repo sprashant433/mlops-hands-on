@@ -503,3 +503,17 @@ Run smoke test:
 ```bash
 ./scripts/smoke_test_k8s_api.sh
 ```
+
+## Full Kubernetes Deployment
+
+Run full deployment:
+
+```bash
+./scripts/deploy_k8s.sh
+```
+
+Check resources:
+
+```bash
+kubectl get all -n mlops-local
+```

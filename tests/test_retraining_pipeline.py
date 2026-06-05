@@ -1,6 +1,5 @@
 import json
 
-from mlops_lr.retraining_pipeline import run_retraining_pipeline
 from mlops_lr.retraining_pipeline import (
     run_retraining_pipeline,
     save_retraining_result,

@@ -8492,3 +8492,108 @@ PYTHONPATH=src pytest
 kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
 ./scripts/smoke_test_k8s_api.sh
 ```
+
+
+### Step 123: Add Kubernetes Deployment Script
+
+Added a script to deploy the local Kubernetes MLOps stack.
+
+The deployment script runs:
+
+```text
+build API image
+→ apply namespace
+→ deploy API
+→ deploy Prometheus
+→ deploy Grafana
+→ deploy Jaeger
+→ deploy OpenTelemetry Collector
+→ deploy Loki
+→ deploy Promtail
+→ check rollout status
+```
+
+Implementation:
+
+```bash
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+docker build -t mlops-logistic-regression-api:latest .
+
+kubectl apply -f k8s/namespace.yaml
+
+kubectl apply -f k8s/api-configmap.yaml
+kubectl apply -f k8s/api-pvc.yaml
+kubectl apply -f k8s/api-deployment.yaml
+kubectl apply -f k8s/api-service.yaml
+kubectl apply -f k8s/api-ingress.yaml
+
+kubectl apply -f k8s/prometheus-configmap.yaml
+kubectl apply -f k8s/prometheus-deployment.yaml
+kubectl apply -f k8s/prometheus-service.yaml
+
+kubectl apply -f k8s/grafana-datasource-configmap.yaml
+kubectl apply -f k8s/grafana-dashboard-configmap.yaml
+kubectl apply -f k8s/grafana-deployment.yaml
+kubectl apply -f k8s/grafana-service.yaml
+
+kubectl apply -f k8s/jaeger-deployment.yaml
+kubectl apply -f k8s/jaeger-service.yaml
+
+kubectl apply -f k8s/otel-collector-configmap.yaml
+kubectl apply -f k8s/otel-collector-deployment.yaml
+kubectl apply -f k8s/otel-collector-service.yaml
+
+kubectl apply -f k8s/loki-deployment.yaml
+kubectl apply -f k8s/loki-service.yaml
+
+kubectl apply -f k8s/promtail-rbac.yaml
+kubectl apply -f k8s/promtail-configmap.yaml
+kubectl apply -f k8s/promtail-daemonset.yaml
+
+kubectl rollout status deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/prometheus -n mlops-local
+kubectl rollout status deployment/grafana -n mlops-local
+kubectl rollout status deployment/jaeger -n mlops-local
+kubectl rollout status deployment/otel-collector -n mlops-local
+kubectl rollout status deployment/loki -n mlops-local
+kubectl rollout status daemonset/promtail -n mlops-local
+
+kubectl get pods -n mlops-local
+kubectl get services -n mlops-local
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+
+def test_k8s_deploy_script_exists():
+    script = Path("scripts/deploy_k8s.sh")
+
+    assert script.exists()
+
+
+def test_k8s_deploy_script_applies_core_manifests():
+    content = Path("scripts/deploy_k8s.sh").read_text()
+
+    assert "docker build -t mlops-logistic-regression-api:latest ." in content
+    assert "kubectl apply -f k8s/namespace.yaml" in content
+    assert "kubectl apply -f k8s/api-deployment.yaml" in content
+    assert "kubectl apply -f k8s/prometheus-deployment.yaml" in content
+    assert "kubectl apply -f k8s/grafana-deployment.yaml" in content
+    assert "kubectl apply -f k8s/promtail-daemonset.yaml" in content
+```
+
+Run:
+
+```bash
+chmod +x scripts/deploy_k8s.sh
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+./scripts/deploy_k8s.sh
+```
