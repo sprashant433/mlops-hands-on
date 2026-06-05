@@ -9296,3 +9296,141 @@ flake8 src tests
 PYTHONPATH=src pytest
 ./scripts/run_production_flow.sh
 ```
+
+### Step 129: Production Flow GitHub Actions Workflow
+
+Created a GitHub Actions workflow for the complete production flow.
+
+The workflow runs on:
+
+```text
+Manual trigger
+Push to main
+```
+
+Created:
+
+```text
+.github/workflows/production-flow.yml
+```
+
+The workflow runs:
+
+```text
+Checkout Repository
+Set Up Python
+Install Dependencies
+Quality Checks
+ML Pipeline
+Tuning Pipeline
+Drift Monitoring Pipeline
+Retraining Pipeline
+Release Manifest Generation
+Docker Image Build
+Upload Reports
+```
+
+Implementation:
+
+```yaml
+name: Production Flow
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  production-flow:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+
+      - name: Run quality checks
+        run: |
+          black --check src tests
+          flake8 src tests
+          PYTHONPATH=src pytest
+
+      - name: Run ML pipeline
+        run: PYTHONPATH=src python src/mlops_lr/pipeline.py
+
+      - name: Run tuning pipeline
+        run: PYTHONPATH=src python src/mlops_lr/tuning_pipeline.py
+
+      - name: Run drift monitoring pipeline
+        run: PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+
+      - name: Run retraining pipeline
+        run: PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
+
+      - name: Generate release manifest
+        run: PYTHONPATH=src python src/mlops_lr/release_manifest.py
+
+      - name: Build Docker image
+        run: docker build -t mlops-logistic-regression-api:${{ github.sha }} .
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-flow-reports
+          path: |
+            reports/
+            models/
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+import yaml
+
+
+def test_production_flow_workflow_exists():
+    workflow_path = Path(".github/workflows/production-flow.yml")
+
+    assert workflow_path.exists()
+
+
+def test_production_flow_workflow_has_manual_trigger():
+    workflow = yaml.safe_load(
+        Path(".github/workflows/production-flow.yml").read_text()
+    )
+
+    assert workflow["name"] == "Production Flow"
+    assert "workflow_dispatch" in workflow[True]
+
+
+def test_production_flow_workflow_runs_core_steps():
+    workflow_text = Path(".github/workflows/production-flow.yml").read_text()
+
+    assert "src/mlops_lr/pipeline.py" in workflow_text
+    assert "src/mlops_lr/tuning_pipeline.py" in workflow_text
+    assert "src/mlops_lr/drift_pipeline.py" in workflow_text
+    assert "src/mlops_lr/retraining_pipeline.py" in workflow_text
+    assert "src/mlops_lr/release_manifest.py" in workflow_text
+    assert "docker build" in workflow_text
+    assert "actions/upload-artifact@v4" in workflow_text
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```

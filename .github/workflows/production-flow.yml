@@ -1,0 +1,57 @@
+name: Production Flow
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  production-flow:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+
+      - name: Run quality checks
+        run: |
+          black --check src tests
+          flake8 src tests
+          PYTHONPATH=src pytest
+
+      - name: Run ML pipeline
+        run: PYTHONPATH=src python src/mlops_lr/pipeline.py
+
+      - name: Run tuning pipeline
+        run: PYTHONPATH=src python src/mlops_lr/tuning_pipeline.py
+
+      - name: Run drift monitoring pipeline
+        run: PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+
+      - name: Run retraining pipeline
+        run: PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
+
+      - name: Generate release manifest
+        run: PYTHONPATH=src python src/mlops_lr/release_manifest.py
+
+      - name: Build Docker image
+        run: docker build -t mlops-logistic-regression-api:${{ github.sha }} .
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-flow-reports
+          path: |
+            reports/
+            models/
