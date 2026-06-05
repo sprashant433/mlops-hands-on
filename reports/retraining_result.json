@@ -1,4 +1,7 @@
 {
-  "status": "skipped",
-  "reason": "drift_not_detected"
+  "status": "retrained",
+  "metrics": {
+    "accuracy": 0.9,
+    "precision": 0.8
+  }
 }

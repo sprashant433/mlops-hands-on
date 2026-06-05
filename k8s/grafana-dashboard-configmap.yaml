@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: mlops-local
+data:
+  dashboard.yml: |
+    apiVersion: 1
+
+    providers:
+      - name: MLOps Dashboards
+        orgId: 1
+        folder: MLOps
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+
+  mlops-api-dashboard.json: |
+    {
+      "uid": "mlops-api-k8s",
+      "title": "MLOps API Monitoring - Kubernetes",
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "10s",
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Prediction Requests",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "rate(prediction_requests_total[1m])",
+              "legendFormat": "prediction requests/sec",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Prediction Errors",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "rate(prediction_errors_total[1m])",
+              "legendFormat": "prediction errors/sec",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Request Latency",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+              "legendFormat": "p95 latency",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Model Drift Alert",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "model_drift_detected",
+              "legendFormat": "drift detected",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
+    }

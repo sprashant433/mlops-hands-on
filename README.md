@@ -6912,3 +6912,2007 @@ git merge --no-ff develop -m "merge: develop into main"
 git tag v1.3-drift-monitoring
 git checkout develop
 ```
+
+## Phase 16 — Kubernetes
+
+### Step 104: Create Kubernetes Project Structure
+
+Created the Kubernetes manifest folder and base namespace.
+
+Kubernetes structure:
+
+```text
+k8s/
+├── README.md
+└── namespace.yaml
+```
+
+Namespace manifest:
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mlops-local
+```
+
+Run:
+
+```bash
+python -c "import yaml; yaml.safe_load(open('k8s/namespace.yaml'))"
+kubectl apply -f k8s/namespace.yaml
+kubectl get namespace mlops-local
+```
+
+Expected result:
+
+```text
+mlops-local namespace exists
+```
+
+### Step 105: Add Kubernetes API Deployment
+
+Added a Kubernetes Deployment for the FastAPI inference service.
+
+The deployment runs:
+
+```text
+mlops-logistic-regression-api:latest
+```
+
+Kubernetes manifest:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlops-api
+  namespace: mlops-local
+  labels:
+    app: mlops-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlops-api
+  template:
+    metadata:
+      labels:
+        app: mlops-api
+    spec:
+      containers:
+        - name: mlops-api
+          image: mlops-logistic-regression-api:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: PYTHONPATH
+              value: /app/src
+```
+
+Run:
+
+```bash
+docker build -t mlops-logistic-regression-api:latest .
+kubectl apply -f k8s/api-deployment.yaml
+kubectl get pods -n mlops-local
+kubectl logs -n mlops-local deployment/mlops-api
+```
+
+Expected result:
+
+```text
+mlops-api pod is Running
+```
+
+### Step 106: Add Kubernetes API Service
+
+Added a Kubernetes Service for the FastAPI inference deployment.
+
+The service routes traffic to pods with:
+
+```text
+app=mlops-api
+```
+
+Service manifest:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlops-api-service
+  namespace: mlops-local
+  labels:
+    app: mlops-api
+spec:
+  type: ClusterIP
+  selector:
+    app: mlops-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/api-service.yaml
+kubectl get service -n mlops-local
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+```
+
+Test API:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Expected result:
+
+```json
+{
+  "status": "ok",
+  "trace_id": "...",
+  "span_id": "..."
+}
+```
+
+### Step 107: Add Kubernetes ConfigMap
+
+Added a Kubernetes ConfigMap for FastAPI application configuration.
+
+The ConfigMap provides:
+
+```text
+configs/config.yaml
+```
+
+inside the API pod.
+
+ConfigMap manifest:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlops-api-config
+  namespace: mlops-local
+data:
+  config.yaml: |
+    project:
+      name: mlops-logistic-regression
+      version: 0.1.0
+
+    data:
+      raw_path: data/raw.csv
+      processed_path: data/processed.csv
+      target_column: loan_approved
+      test_size: 0.2
+      random_state: 42
+
+    model:
+      name: LogisticRegression
+      max_iter: 1000
+      output_path: models/logistic_regression.pkl
+      metrics_path: reports/metrics.json
+
+    mlflow:
+      tracking_uri: file:./mlruns
+      experiment_name: loan-approval-logistic-regression
+      registered_model_name: LoanApprovalModel
+
+    serving:
+      host: 0.0.0.0
+      port: 8000
+      model_stage: Production
+
+    monitoring:
+      prediction_log_path: data/predictions.csv
+      drift_alert_path: reports/drift_alert.json
+
+    tuning:
+      max_evals: 10
+```
+
+Deployment mount:
+
+```yaml
+volumeMounts:
+  - name: api-config
+    mountPath: /app/configs/config.yaml
+    subPath: config.yaml
+```
+
+Deployment volume:
+
+```yaml
+volumes:
+  - name: api-config
+    configMap:
+      name: mlops-api-config
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/api-configmap.yaml
+kubectl apply -f k8s/api-deployment.yaml
+kubectl rollout restart deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/mlops-api -n mlops-local
+kubectl get pods -n mlops-local
+```
+
+Verify config mounted:
+
+```bash
+kubectl exec -n mlops-local deployment/mlops-api -- cat /app/configs/config.yaml
+```
+
+### Step 108: Add Kubernetes API Persistent Volumes
+
+Added Kubernetes PersistentVolumeClaims for API runtime files.
+
+The API needs storage for:
+
+```text
+data
+reports
+mlruns
+```
+
+PVC manifest:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlops-api-data-pvc
+  namespace: mlops-local
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlops-api-reports-pvc
+  namespace: mlops-local
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlops-api-mlruns-pvc
+  namespace: mlops-local
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+```
+
+Deployment volume mounts:
+
+```yaml
+volumeMounts:
+  - name: api-config
+    mountPath: /app/configs/config.yaml
+    subPath: config.yaml
+  - name: api-data
+    mountPath: /app/data
+  - name: api-reports
+    mountPath: /app/reports
+  - name: api-mlruns
+    mountPath: /app/mlruns
+```
+
+Deployment volumes:
+
+```yaml
+volumes:
+  - name: api-config
+    configMap:
+      name: mlops-api-config
+  - name: api-data
+    persistentVolumeClaim:
+      claimName: mlops-api-data-pvc
+  - name: api-reports
+    persistentVolumeClaim:
+      claimName: mlops-api-reports-pvc
+  - name: api-mlruns
+    persistentVolumeClaim:
+      claimName: mlops-api-mlruns-pvc
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/api-pvc.yaml
+kubectl apply -f k8s/api-deployment.yaml
+kubectl rollout restart deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/mlops-api -n mlops-local
+kubectl get pvc -n mlops-local
+kubectl get pods -n mlops-local
+```
+
+Verify mounts:
+
+```bash
+kubectl exec -n mlops-local deployment/mlops-api -- ls /app/data
+kubectl exec -n mlops-local deployment/mlops-api -- ls /app/reports
+kubectl exec -n mlops-local deployment/mlops-api -- ls /app/mlruns
+```
+
+### Step 109: Add Kubernetes API Readiness and Liveness Probes
+
+Added Kubernetes health probes for the FastAPI service.
+
+The probes use existing API endpoints:
+
+```text
+/ready  → readiness probe
+/health → liveness probe
+```
+
+Readiness probe:
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 8000
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 3
+```
+
+Liveness probe:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 20
+  periodSeconds: 20
+  failureThreshold: 3
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/api-deployment.yaml
+kubectl rollout restart deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/mlops-api -n mlops-local
+kubectl describe deployment mlops-api -n mlops-local
+kubectl get pods -n mlops-local
+```
+
+Expected result:
+
+```text
+Pod is running and probes are configured.
+```
+
+### Step 110: Add Kubernetes API Resource Requests and Limits
+
+Added CPU and memory requests/limits for the FastAPI Kubernetes deployment.
+
+Resource requests tell Kubernetes what the pod needs.
+
+Resource limits cap how much the pod can consume.
+
+Resource configuration:
+
+```yaml
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "1000m"
+    memory: "1Gi"
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/api-deployment.yaml
+kubectl rollout restart deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/mlops-api -n mlops-local
+kubectl describe pod -n mlops-local -l app=mlops-api
+```
+
+Expected result:
+
+```text
+Pod shows CPU and memory requests/limits.
+```
+
+### Step 111: Add Kubernetes API Ingress
+
+Added a Kubernetes Ingress for the FastAPI service.
+
+Ingress route:
+
+```text
+mlops-api.local
+→ mlops-api-service
+→ mlops-api pod
+```
+
+Ingress manifest:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mlops-api-ingress
+  namespace: mlops-local
+spec:
+  rules:
+    - host: mlops-api.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mlops-api-service
+                port:
+                  number: 8000
+```
+
+Add local host mapping:
+
+```text
+127.0.0.1 mlops-api.local
+```
+
+Apply ingress:
+
+```bash
+kubectl apply -f k8s/api-ingress.yaml
+kubectl get ingress -n mlops-local
+```
+
+Test:
+
+```bash
+curl http://mlops-api.local/health
+```
+
+If Ingress controller is not installed, use port-forward:
+
+```bash
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+curl http://127.0.0.1:8000/health
+```
+
+### Step 112: Add Kubernetes Prometheus Deployment
+
+Added Prometheus to Kubernetes for scraping FastAPI metrics.
+
+Prometheus scrape flow:
+
+```text
+Prometheus pod
+→ mlops-api-service:8000/metrics
+→ model and API metrics
+```
+
+Prometheus config:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: mlops-local
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+
+    scrape_configs:
+      - job_name: mlops-api
+        metrics_path: /metrics
+        static_configs:
+          - targets:
+              - mlops-api-service:8000
+```
+
+Prometheus deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: mlops-local
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:latest
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+```
+
+Prometheus service:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-service
+  namespace: mlops-local
+  labels:
+    app: prometheus
+spec:
+  type: ClusterIP
+  selector:
+    app: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/prometheus-configmap.yaml
+kubectl apply -f k8s/prometheus-deployment.yaml
+kubectl apply -f k8s/prometheus-service.yaml
+kubectl rollout status deployment/prometheus -n mlops-local
+kubectl get pods -n mlops-local
+kubectl port-forward -n mlops-local service/prometheus-service 9090:9090
+```
+
+Open Prometheus:
+
+```text
+http://127.0.0.1:9090
+```
+
+Query:
+
+```promql
+up
+```
+
+Expected target:
+
+```text
+job="mlops-api"
+```
+
+### Step 113: Add Kubernetes Grafana Deployment
+
+Added Grafana to Kubernetes with a provisioned Prometheus datasource.
+
+Grafana flow:
+
+```text
+Grafana pod
+→ Prometheus datasource
+→ prometheus-service:9090
+→ MLOps API metrics
+```
+
+Grafana datasource ConfigMap:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: mlops-local
+data:
+  prometheus.yml: |
+    apiVersion: 1
+
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus-service:9090
+        isDefault: true
+```
+
+Grafana deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: mlops-local
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: admin
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: admin
+          volumeMounts:
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: grafana-datasources
+          configMap:
+            name: grafana-datasources
+```
+
+Grafana service:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: mlops-local
+  labels:
+    app: grafana
+spec:
+  type: ClusterIP
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/grafana-datasource-configmap.yaml
+kubectl apply -f k8s/grafana-deployment.yaml
+kubectl apply -f k8s/grafana-service.yaml
+kubectl rollout status deployment/grafana -n mlops-local
+kubectl get pods -n mlops-local
+kubectl port-forward -n mlops-local service/grafana-service 3000:3000
+```
+
+Open Grafana:
+
+```text
+http://127.0.0.1:3000
+```
+
+Login:
+
+```text
+username: admin
+password: admin
+```
+
+Check datasource:
+
+```text
+Connections → Data sources → Prometheus
+```
+
+### Step 114: Add Kubernetes Grafana Dashboard Provisioning
+
+Added Grafana dashboard provisioning for Kubernetes.
+
+The dashboard provisioning flow is:
+
+```text
+Grafana ConfigMap
+→ dashboard provider config
+→ dashboard JSON
+→ Grafana MLOps folder
+```
+
+Dashboard ConfigMap:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: mlops-local
+data:
+  dashboard.yml: |
+    apiVersion: 1
+
+    providers:
+      - name: MLOps Dashboards
+        orgId: 1
+        folder: MLOps
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+```
+
+Dashboard panels:
+
+```text
+Prediction Requests
+Prediction Errors
+Request Latency
+Model Drift Alert
+```
+
+Grafana deployment mounts:
+
+```yaml
+volumeMounts:
+  - name: grafana-datasources
+    mountPath: /etc/grafana/provisioning/datasources
+  - name: grafana-dashboard-provisioning
+    mountPath: /etc/grafana/provisioning/dashboards
+  - name: grafana-dashboards
+    mountPath: /var/lib/grafana/dashboards
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/grafana-dashboard-configmap.yaml
+kubectl apply -f k8s/grafana-deployment.yaml
+kubectl rollout restart deployment/grafana -n mlops-local
+kubectl rollout status deployment/grafana -n mlops-local
+kubectl port-forward -n mlops-local service/grafana-service 3000:3000
+```
+
+Open Grafana:
+
+```text
+http://127.0.0.1:3000
+```
+
+Check dashboard:
+
+```text
+Dashboards → MLOps → MLOps API Monitoring - Kubernetes
+```
+
+### Step 115: Add Kubernetes Jaeger Deployment
+
+Added Jaeger to Kubernetes for trace visualization.
+
+Jaeger receives traces through OTLP gRPC and exposes a UI.
+
+Jaeger deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: mlops-local
+  labels:
+    app: jaeger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:latest
+          ports:
+            - containerPort: 16686
+            - containerPort: 4317
+          env:
+            - name: COLLECTOR_OTLP_ENABLED
+              value: "true"
+```
+
+Jaeger service:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-service
+  namespace: mlops-local
+  labels:
+    app: jaeger
+spec:
+  type: ClusterIP
+  selector:
+    app: jaeger
+  ports:
+    - name: ui
+      port: 16686
+      targetPort: 16686
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/jaeger-deployment.yaml
+kubectl apply -f k8s/jaeger-service.yaml
+kubectl rollout status deployment/jaeger -n mlops-local
+kubectl get pods -n mlops-local
+kubectl port-forward -n mlops-local service/jaeger-service 16686:16686
+```
+
+Open Jaeger:
+
+```text
+http://127.0.0.1:16686
+```
+
+### Step 116: Add Kubernetes OpenTelemetry Collector
+
+Added OpenTelemetry Collector to Kubernetes.
+
+Trace flow:
+
+```text
+FastAPI pod
+→ otel-collector:4317
+→ jaeger-service:4317
+→ Jaeger UI
+```
+
+Collector ConfigMap:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: mlops-local
+data:
+  otel-collector-config.yml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      batch:
+
+    exporters:
+      otlp/jaeger:
+        endpoint: jaeger-service:4317
+        tls:
+          insecure: true
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlp/jaeger]
+```
+
+Collector deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: mlops-local
+  labels:
+    app: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector:latest
+          command:
+            - /otelcol
+            - --config=/etc/otel-collector-config.yml
+          ports:
+            - containerPort: 4317
+            - containerPort: 4318
+          volumeMounts:
+            - name: otel-collector-config
+              mountPath: /etc/otel-collector-config.yml
+              subPath: otel-collector-config.yml
+```
+
+Collector service:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: mlops-local
+  labels:
+    app: otel-collector
+spec:
+  type: ClusterIP
+  selector:
+    app: otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/otel-collector-configmap.yaml
+kubectl apply -f k8s/otel-collector-deployment.yaml
+kubectl apply -f k8s/otel-collector-service.yaml
+kubectl rollout status deployment/otel-collector -n mlops-local
+kubectl logs -n mlops-local deployment/otel-collector
+```
+
+### Step 117: Point Kubernetes API Traces to OTel Collector
+
+Updated tracing configuration so the API sends traces to the Kubernetes OpenTelemetry Collector.
+
+Trace flow in Kubernetes:
+
+```text
+mlops-api pod
+→ otel-collector:4317
+→ jaeger-service:4317
+→ Jaeger UI
+```
+
+Config:
+
+```yaml
+tracing:
+  otlp_endpoint: http://otel-collector:4317
+```
+
+Implementation:
+
+```python
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+from mlops_lr.config import load_config
+
+
+def configure_tracing(app) -> None:
+    config = load_config()
+
+    resource = Resource.create(
+        {
+            "service.name": "mlops-logistic-regression-api",
+        }
+    )
+
+    provider = TracerProvider(resource=resource)
+    processor = BatchSpanProcessor(
+        OTLPSpanExporter(
+            endpoint=config.tracing.otlp_endpoint,
+            insecure=True,
+        )
+    )
+
+    provider.add_span_processor(processor)
+    trace.set_tracer_provider(provider)
+
+    FastAPIInstrumentor.instrument_app(app)
+```
+
+Tests:
+
+```python
+from fastapi import FastAPI
+
+from mlops_lr.tracing import configure_tracing
+
+
+def test_configure_tracing():
+    app = FastAPI()
+
+    configure_tracing(app)
+
+    assert app is not None
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+docker build -t mlops-logistic-regression-api:latest .
+kubectl apply -f k8s/api-configmap.yaml
+kubectl rollout restart deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/mlops-api -n mlops-local
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+```
+
+Generate trace:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Open Jaeger:
+
+```bash
+kubectl port-forward -n mlops-local service/jaeger-service 16686:16686
+```
+
+Check:
+
+```text
+http://127.0.0.1:16686
+service: mlops-logistic-regression-api
+```
+
+### Step 118: Add Kubernetes Loki Deployment
+
+Added Loki to Kubernetes for log storage.
+
+Loki flow:
+
+```text
+Promtail later
+→ Loki service
+→ Grafana Loki datasource later
+```
+
+Loki deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: mlops-local
+  labels:
+    app: loki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+        - name: loki
+          image: grafana/loki:latest
+          args:
+            - -config.file=/etc/loki/local-config.yaml
+          ports:
+            - containerPort: 3100
+```
+
+Loki service:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-service
+  namespace: mlops-local
+  labels:
+    app: loki
+spec:
+  type: ClusterIP
+  selector:
+    app: loki
+  ports:
+    - name: http
+      port: 3100
+      targetPort: 3100
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/loki-deployment.yaml
+kubectl apply -f k8s/loki-service.yaml
+kubectl rollout status deployment/loki -n mlops-local
+kubectl get pods -n mlops-local
+kubectl port-forward -n mlops-local service/loki-service 3100:3100
+```
+
+Check Loki:
+
+```bash
+curl http://127.0.0.1:3100/ready
+```
+
+### Step 119: Add Kubernetes Promtail DaemonSet
+
+Added Promtail to Kubernetes as a DaemonSet.
+
+Promtail collects pod logs and sends them to Loki.
+
+Log flow:
+
+```text
+Kubernetes pod logs
+→ Promtail DaemonSet
+→ loki-service:3100
+→ Grafana Loki datasource later
+```
+
+Promtail config:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: mlops-local
+data:
+  promtail-config.yml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+
+    positions:
+      filename: /tmp/positions.yml
+
+    clients:
+      - url: http://loki-service:3100/loki/api/v1/push
+
+    scrape_configs:
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+
+        relabel_configs:
+          - source_labels:
+              - __meta_kubernetes_namespace
+            target_label: namespace
+          - source_labels:
+              - __meta_kubernetes_pod_name
+            target_label: pod
+          - source_labels:
+              - __meta_kubernetes_pod_container_name
+            target_label: container
+          - source_labels:
+              - __meta_kubernetes_pod_label_app
+            target_label: app
+          - action: replace
+            replacement: /var/log/pods/*$1/*.log
+            separator: /
+            source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+```
+
+Promtail DaemonSet:
+
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: mlops-local
+  labels:
+    app: promtail
+spec:
+  selector:
+    matchLabels:
+      app: promtail
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      serviceAccountName: default
+      containers:
+        - name: promtail
+          image: grafana/promtail:latest
+          args:
+            - -config.file=/etc/promtail/promtail-config.yml
+          ports:
+            - containerPort: 9080
+          volumeMounts:
+            - name: promtail-config
+              mountPath: /etc/promtail/promtail-config.yml
+              subPath: promtail-config.yml
+            - name: pods
+              mountPath: /var/log/pods
+              readOnly: true
+      volumes:
+        - name: promtail-config
+          configMap:
+            name: promtail-config
+        - name: pods
+          hostPath:
+            path: /var/log/pods
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/promtail-configmap.yaml
+kubectl apply -f k8s/promtail-daemonset.yaml
+kubectl get daemonset -n mlops-local
+kubectl get pods -n mlops-local -l app=promtail
+kubectl logs -n mlops-local -l app=promtail --tail 50
+```
+
+### Step 120: Add Loki Datasource to Kubernetes Grafana
+
+Added Loki as a Grafana datasource in Kubernetes.
+
+Grafana datasource flow:
+
+```text
+Grafana
+→ Prometheus datasource
+→ API metrics
+
+Grafana
+→ Loki datasource
+→ Kubernetes pod logs
+```
+
+Datasource ConfigMap:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: mlops-local
+data:
+  prometheus.yml: |
+    apiVersion: 1
+
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus-service:9090
+        isDefault: true
+
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki-service:3100
+        isDefault: false
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/grafana-datasource-configmap.yaml
+kubectl rollout restart deployment/grafana -n mlops-local
+kubectl rollout status deployment/grafana -n mlops-local
+kubectl port-forward -n mlops-local service/grafana-service 3000:3000
+```
+
+Open Grafana:
+
+```text
+http://127.0.0.1:3000
+```
+
+Check datasources:
+
+```text
+Connections → Data sources
+```
+
+Expected datasources:
+
+```text
+Prometheus
+Loki
+```
+
+Check Loki Explore:
+
+```text
+Explore → Loki
+```
+
+Query:
+
+```logql
+{namespace="mlops-local"}
+```
+
+### Step 121: Finalize Kubernetes Loki and Promtail Logging
+
+Finalized Kubernetes log collection using Loki and Promtail.
+
+The final Kubernetes logging flow is:
+
+```text
+Kubernetes container logs
+→ /var/log/containers/*.log
+→ Promtail DaemonSet
+→ Loki service
+→ Grafana Loki datasource
+```
+
+Promtail config:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: mlops-local
+data:
+  promtail-config.yml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+
+    positions:
+      filename: /tmp/positions.yml
+
+    clients:
+      - url: http://loki-service:3100/loki/api/v1/push
+
+    scrape_configs:
+      - job_name: kubernetes-containers
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: kubernetes-containers
+              namespace: mlops-local
+              __path__: /var/log/containers/*.log
+```
+
+Promtail mounts:
+
+```yaml
+volumeMounts:
+  - name: promtail-config
+    mountPath: /etc/promtail/promtail-config.yml
+    subPath: promtail-config.yml
+  - name: pods
+    mountPath: /var/log/pods
+    readOnly: true
+  - name: containers
+    mountPath: /var/log/containers
+    readOnly: true
+  - name: docker-containers
+    mountPath: /var/lib/docker/containers
+    readOnly: true
+```
+
+Host volumes:
+
+```yaml
+volumes:
+  - name: promtail-config
+    configMap:
+      name: promtail-config
+  - name: pods
+    hostPath:
+      path: /var/log/pods
+  - name: containers
+    hostPath:
+      path: /var/log/containers
+  - name: docker-containers
+    hostPath:
+      path: /var/lib/docker/containers
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/promtail-configmap.yaml
+kubectl apply -f k8s/promtail-daemonset.yaml
+kubectl rollout restart daemonset/promtail -n mlops-local
+kubectl rollout status daemonset/promtail -n mlops-local
+kubectl logs -n mlops-local -l app=promtail --tail 100
+```
+
+Generate API logs:
+
+```bash
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/model-info
+```
+
+Check Loki labels:
+
+```bash
+kubectl port-forward -n mlops-local service/loki-service 3100:3100
+curl http://127.0.0.1:3100/loki/api/v1/labels
+```
+
+Expected labels:
+
+```text
+filename
+job
+namespace
+```
+
+Grafana Loki queries:
+
+```logql
+{namespace="mlops-local"}
+```
+
+```logql
+{job="kubernetes-containers"}
+```
+
+### Step 122: Add Kubernetes Smoke Test Script
+
+Added a Kubernetes API smoke test script.
+
+The smoke test checks:
+
+```text
+/health
+/predict
+```
+
+Implementation:
+
+```bash
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+API_URL="${API_URL:-http://127.0.0.1:8000}"
+
+curl -s "$API_URL/health"
+
+curl -s -X POST "$API_URL/predict" \
+  -H "Content-Type: application/json" \
+  -H "x-request-id: k8s-smoke-test" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+
+def test_k8s_smoke_script_exists():
+    script = Path("scripts/smoke_test_k8s_api.sh")
+
+    assert script.exists()
+
+
+def test_k8s_smoke_script_contains_health_and_predict_checks():
+    content = Path("scripts/smoke_test_k8s_api.sh").read_text()
+
+    assert "/health" in content
+    assert "/predict" in content
+    assert "k8s-smoke-test" in content
+```
+
+Run:
+
+```bash
+chmod +x scripts/smoke_test_k8s_api.sh
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+./scripts/smoke_test_k8s_api.sh
+```
+
+
+### Step 123: Add Kubernetes Deployment Script
+
+Added a script to deploy the local Kubernetes MLOps stack.
+
+The deployment script runs:
+
+```text
+build API image
+→ apply namespace
+→ deploy API
+→ deploy Prometheus
+→ deploy Grafana
+→ deploy Jaeger
+→ deploy OpenTelemetry Collector
+→ deploy Loki
+→ deploy Promtail
+→ check rollout status
+```
+
+Implementation:
+
+```bash
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+docker build -t mlops-logistic-regression-api:latest .
+
+kubectl apply -f k8s/namespace.yaml
+
+kubectl apply -f k8s/api-configmap.yaml
+kubectl apply -f k8s/api-pvc.yaml
+kubectl apply -f k8s/api-deployment.yaml
+kubectl apply -f k8s/api-service.yaml
+kubectl apply -f k8s/api-ingress.yaml
+
+kubectl apply -f k8s/prometheus-configmap.yaml
+kubectl apply -f k8s/prometheus-deployment.yaml
+kubectl apply -f k8s/prometheus-service.yaml
+
+kubectl apply -f k8s/grafana-datasource-configmap.yaml
+kubectl apply -f k8s/grafana-dashboard-configmap.yaml
+kubectl apply -f k8s/grafana-deployment.yaml
+kubectl apply -f k8s/grafana-service.yaml
+
+kubectl apply -f k8s/jaeger-deployment.yaml
+kubectl apply -f k8s/jaeger-service.yaml
+
+kubectl apply -f k8s/otel-collector-configmap.yaml
+kubectl apply -f k8s/otel-collector-deployment.yaml
+kubectl apply -f k8s/otel-collector-service.yaml
+
+kubectl apply -f k8s/loki-deployment.yaml
+kubectl apply -f k8s/loki-service.yaml
+
+kubectl apply -f k8s/promtail-rbac.yaml
+kubectl apply -f k8s/promtail-configmap.yaml
+kubectl apply -f k8s/promtail-daemonset.yaml
+
+kubectl rollout status deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/prometheus -n mlops-local
+kubectl rollout status deployment/grafana -n mlops-local
+kubectl rollout status deployment/jaeger -n mlops-local
+kubectl rollout status deployment/otel-collector -n mlops-local
+kubectl rollout status deployment/loki -n mlops-local
+kubectl rollout status daemonset/promtail -n mlops-local
+
+kubectl get pods -n mlops-local
+kubectl get services -n mlops-local
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+
+def test_k8s_deploy_script_exists():
+    script = Path("scripts/deploy_k8s.sh")
+
+    assert script.exists()
+
+
+def test_k8s_deploy_script_applies_core_manifests():
+    content = Path("scripts/deploy_k8s.sh").read_text()
+
+    assert "docker build -t mlops-logistic-regression-api:latest ." in content
+    assert "kubectl apply -f k8s/namespace.yaml" in content
+    assert "kubectl apply -f k8s/api-deployment.yaml" in content
+    assert "kubectl apply -f k8s/prometheus-deployment.yaml" in content
+    assert "kubectl apply -f k8s/grafana-deployment.yaml" in content
+    assert "kubectl apply -f k8s/promtail-daemonset.yaml" in content
+```
+
+Run:
+
+```bash
+chmod +x scripts/deploy_k8s.sh
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+./scripts/deploy_k8s.sh
+```
+
+### Step 124: Add Kubernetes Teardown Script
+
+Added a script to delete the local Kubernetes MLOps stack.
+
+The teardown script deletes:
+
+```text
+mlops-local namespace
+```
+
+Implementation:
+
+```bash
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+kubectl delete namespace mlops-local --ignore-not-found=true
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+
+def test_k8s_delete_script_exists():
+    script = Path("scripts/delete_k8s.sh")
+
+    assert script.exists()
+
+
+def test_k8s_delete_script_deletes_namespace():
+    content = Path("scripts/delete_k8s.sh").read_text()
+
+    assert "kubectl delete namespace mlops-local" in content
+    assert "--ignore-not-found=true" in content
+```
+
+Run:
+
+```bash
+chmod +x scripts/delete_k8s.sh
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+```
+
+Delete stack:
+
+```bash
+./scripts/delete_k8s.sh
+```
+
+Redeploy stack:
+
+```bash
+./scripts/deploy_k8s.sh
+```
+
+### Step 125: Add Kubernetes Runbook
+
+Added a Kubernetes runbook for operating the local MLOps stack.
+
+Runbook file:
+
+```text
+docs/kubernetes-runbook.md
+```
+
+The runbook covers:
+
+```text
+cluster prerequisites
+full stack deployment
+API access
+Prometheus access
+Grafana access
+Jaeger access
+Loki access
+debugging commands
+component restarts
+stack teardown
+stack redeploy
+```
+
+Implementation:
+
+```markdown
+# Kubernetes Runbook
+
+## Purpose
+
+This runbook explains how to deploy, verify, debug, and delete the local Kubernetes MLOps stack.
+
+## Deploy Stack
+
+```bash
+./scripts/deploy_k8s.sh
+```
+
+## Check Resources
+
+```bash
+kubectl get all -n mlops-local
+kubectl get pvc -n mlops-local
+kubectl get ingress -n mlops-local
+```
+
+## API Access
+
+```bash
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+curl http://127.0.0.1:8000/health
+./scripts/smoke_test_k8s_api.sh
+```
+
+## Prometheus Access
+
+```bash
+kubectl port-forward -n mlops-local service/prometheus-service 9090:9090
+```
+
+## Grafana Access
+
+```bash
+kubectl port-forward -n mlops-local service/grafana-service 3000:3000
+```
+
+## Jaeger Access
+
+```bash
+kubectl port-forward -n mlops-local service/jaeger-service 16686:16686
+```
+
+## Loki Access
+
+```bash
+kubectl port-forward -n mlops-local service/loki-service 3100:3100
+curl http://127.0.0.1:3100/loki/api/v1/labels
+```
+
+## Delete Stack
+
+```bash
+./scripts/delete_k8s.sh
+```
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+```
+
+### Step 126: Phase 16 Kubernetes Checkpoint
+
+Completed Phase 16: Kubernetes.
+
+This phase moved the local Docker Compose MLOps platform into Kubernetes using Docker Desktop Kubernetes or Minikube.
+
+Implemented:
+
+```text
+Kubernetes Namespace
+FastAPI Deployment
+FastAPI Service
+FastAPI ConfigMap
+Persistent Volumes
+Readiness Probe
+Liveness Probe
+Resource Requests and Limits
+Ingress
+Prometheus Deployment
+Grafana Deployment
+Grafana Datasource
+Grafana Dashboard Provisioning
+Jaeger Deployment
+OpenTelemetry Collector
+Loki Deployment
+Promtail DaemonSet
+Kubernetes Smoke Test Script
+Kubernetes Deploy Script
+Kubernetes Delete Script
+Kubernetes Runbook
+```
+
+Key Kubernetes files:
+
+```text
+k8s/namespace.yaml
+k8s/api-configmap.yaml
+k8s/api-pvc.yaml
+k8s/api-deployment.yaml
+k8s/api-service.yaml
+k8s/api-ingress.yaml
+k8s/prometheus-configmap.yaml
+k8s/prometheus-deployment.yaml
+k8s/prometheus-service.yaml
+k8s/grafana-datasource-configmap.yaml
+k8s/grafana-dashboard-configmap.yaml
+k8s/grafana-deployment.yaml
+k8s/grafana-service.yaml
+k8s/jaeger-deployment.yaml
+k8s/jaeger-service.yaml
+k8s/otel-collector-configmap.yaml
+k8s/otel-collector-deployment.yaml
+k8s/otel-collector-service.yaml
+k8s/loki-deployment.yaml
+k8s/loki-service.yaml
+k8s/promtail-rbac.yaml
+k8s/promtail-configmap.yaml
+k8s/promtail-daemonset.yaml
+```
+
+Automation scripts:
+
+```text
+scripts/deploy_k8s.sh
+scripts/smoke_test_k8s_api.sh
+scripts/delete_k8s.sh
+```
+
+Run quality checks:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+```
+
+Deploy Kubernetes stack:
+
+```bash
+./scripts/deploy_k8s.sh
+```
+
+Check Kubernetes resources:
+
+```bash
+kubectl get all -n mlops-local
+kubectl get pvc -n mlops-local
+kubectl get ingress -n mlops-local
+```
+
+Port-forward API:
+
+```bash
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+```
+
+Run smoke test:
+
+```bash
+./scripts/smoke_test_k8s_api.sh
+```
+
+Port-forward Grafana:
+
+```bash
+kubectl port-forward -n mlops-local service/grafana-service 3000:3000
+```
+
+Open:
+
+```text
+http://127.0.0.1:3000
+```
+
+Port-forward Prometheus:
+
+```bash
+kubectl port-forward -n mlops-local service/prometheus-service 9090:9090
+```
+
+Open:
+
+```text
+http://127.0.0.1:9090
+```
+
+Port-forward Jaeger:
+
+```bash
+kubectl port-forward -n mlops-local service/jaeger-service 16686:16686
+```
+
+Open:
+
+```text
+http://127.0.0.1:16686
+```
+
+Port-forward Loki:
+
+```bash
+kubectl port-forward -n mlops-local service/loki-service 3100:3100
+```
+
+Check Loki labels:
+
+```bash
+curl http://127.0.0.1:3100/loki/api/v1/labels
+```
+
+Kubernetes cleanup:
+
+```bash
+./scripts/delete_k8s.sh
+```
+
+Phase 16 milestone tag:
+
+```text
+v1.4-kubernetes
+```

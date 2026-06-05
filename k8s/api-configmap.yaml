@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlops-api-config
+  namespace: mlops-local
+data:
+  config.yaml: |
+    project:
+      name: mlops-logistic-regression
+      version: 0.1.0
+
+    data:
+      raw_path: data/raw.csv
+      processed_path: data/processed.csv
+      target_column: loan_approved
+      test_size: 0.2
+      random_state: 42
+
+    model:
+      name: LogisticRegression
+      max_iter: 1000
+      output_path: models/logistic_regression.pkl
+      metrics_path: reports/metrics.json
+
+    mlflow:
+      tracking_uri: file:./mlruns
+      experiment_name: loan-approval-logistic-regression
+      registered_model_name: LoanApprovalModel
+
+    serving:
+      host: 0.0.0.0
+      port: 8000
+      model_stage: Production
+
+    monitoring:
+      prediction_log_path: data/predictions.csv
+      drift_alert_path: reports/drift_alert.json
+
+    tuning:
+      max_evals: 10
+
+    tracing:
+      otlp_endpoint: http://otel-collector:4317
+

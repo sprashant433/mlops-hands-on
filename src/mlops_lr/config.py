@@ -46,6 +46,10 @@ class MonitoringConfig(BaseModel):
     drift_alert_path: str
 
 
+class TracingConfig(BaseModel):
+    otlp_endpoint: str
+
+
 class AppConfig(BaseModel):
     project: ProjectConfig
     data: DataConfig
@@ -54,6 +58,7 @@ class AppConfig(BaseModel):
     tuning: TuningConfig
     serving: ServingConfig
     monitoring: MonitoringConfig
+    tracing: TracingConfig
 
 
 def load_config(config_path: str = "configs/config.yaml") -> AppConfig:
