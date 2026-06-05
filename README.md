@@ -9208,3 +9208,91 @@ PYTHONPATH=src pytest
 PYTHONPATH=src python src/mlops_lr/release_manifest.py
 cat reports/release_manifest.json
 ```
+
+### Step 128: End-to-End Production Flow Script
+
+Created a single production flow script in `scripts/run_production_flow.sh`.
+
+This script runs the complete local production MLOps flow:
+
+```text
+Quality Checks
+→ ML Pipeline
+→ Hyperparameter Tuning
+→ Drift Monitoring
+→ Retraining Trigger Evaluation
+→ Release Manifest Generation
+→ Docker Image Build
+```
+
+Implementation:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Running quality checks"
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+
+echo "Running ML pipeline"
+PYTHONPATH=src python src/mlops_lr/pipeline.py
+
+echo "Running hyperparameter tuning pipeline"
+PYTHONPATH=src python src/mlops_lr/tuning_pipeline.py
+
+echo "Running drift monitoring pipeline"
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+
+echo "Evaluating retraining trigger"
+PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
+
+echo "Generating release manifest"
+PYTHONPATH=src python src/mlops_lr/release_manifest.py
+
+echo "Building Docker image"
+docker build -t mlops-logistic-regression-api:local .
+
+echo "Production flow completed"
+```
+
+Make it executable:
+
+```bash
+chmod +x scripts/run_production_flow.sh
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+
+def test_production_flow_script_exists():
+    script = Path("scripts/run_production_flow.sh")
+
+    assert script.exists()
+    assert script.read_text().startswith("#!/usr/bin/env bash")
+
+
+def test_production_flow_script_runs_core_stages():
+    script = Path("scripts/run_production_flow.sh").read_text()
+
+    assert "pytest" in script
+    assert "src/mlops_lr/pipeline.py" in script
+    assert "src/mlops_lr/tuning_pipeline.py" in script
+    assert "src/mlops_lr/drift_pipeline.py" in script
+    assert "src/mlops_lr/retraining_pipeline.py" in script
+    assert "src/mlops_lr/release_manifest.py" in script
+    assert "docker build" in script
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+./scripts/run_production_flow.sh
+```
