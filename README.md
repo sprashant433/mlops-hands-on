@@ -8916,3 +8916,130 @@ Phase 16 milestone tag:
 ```text
 v1.4-kubernetes
 ```
+
+### Step 62A: Containerize MLflow Tracking Server
+
+Containerized MLflow as a Docker Compose service.
+
+Before this step, MLflow was started manually with:
+
+```bash
+mlflow ui
+```
+
+Now MLflow runs with the rest of the local platform using:
+
+```bash
+docker compose up
+```
+
+The MLflow container serves the shared local tracking store:
+
+```text
+./mlruns → /app/mlruns
+```
+
+This keeps experiments, artifacts, registered models, and model versions available to both:
+
+```text
+FastAPI container
+MLflow tracking server container
+```
+
+Updated `docker-compose.yml` with a new `mlflow` service:
+
+```yaml
+mlflow:
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: mlops-logistic-regression-api
+  container_name: mlops-mlflow
+  command:
+    [
+      "mlflow",
+      "server",
+      "--backend-store-uri",
+      "/app/mlruns",
+      "--default-artifact-root",
+      "/app/mlruns",
+      "--host",
+      "0.0.0.0",
+      "--port",
+      "5000",
+    ]
+  ports:
+    - "5000:5000"
+  environment:
+    - PYTHONPATH=/app/src
+  volumes:
+    - ./mlruns:/app/mlruns
+```
+
+Updated the API service so it starts after MLflow:
+
+```yaml
+api:
+  depends_on:
+    - mlflow
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+import yaml
+
+
+def test_docker_compose_has_mlflow_service():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text())
+
+    mlflow = compose["services"]["mlflow"]
+
+    assert mlflow["container_name"] == "mlops-mlflow"
+    assert "5000:5000" in mlflow["ports"]
+    assert "./mlruns:/app/mlruns" in mlflow["volumes"]
+
+
+def test_mlflow_service_runs_tracking_server():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text())
+
+    command = compose["services"]["mlflow"]["command"]
+
+    assert "mlflow" in command
+    assert "server" in command
+    assert "--backend-store-uri" in command
+    assert "/app/mlruns" in command
+    assert "--default-artifact-root" in command
+    assert "--port" in command
+    assert "5000" in command
+
+
+def test_api_depends_on_mlflow():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text())
+
+    assert "mlflow" in compose["services"]["api"]["depends_on"]
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+docker compose up --build
+```
+
+Open MLflow UI:
+
+```text
+http://127.0.0.1:5000
+```
+
+Check containers:
+
+```bash
+docker compose ps
+docker logs mlops-mlflow --tail 30
+```

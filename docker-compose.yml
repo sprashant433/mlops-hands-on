@@ -1,4 +1,30 @@
 services:
+  mlflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mlops-logistic-regression-api
+    container_name: mlops-mlflow
+    command:
+      [
+        "mlflow",
+        "server",
+        "--backend-store-uri",
+        "/app/mlruns",
+        "--default-artifact-root",
+        "/app/mlruns",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "5000",
+      ]
+    ports:
+      - "5000:5000"
+    environment:
+      - PYTHONPATH=/app/src
+    volumes:
+      - ./mlruns:/app/mlruns
+
   api:
     build:
       context: .
@@ -13,6 +39,8 @@ services:
       - ./mlruns:/app/mlruns
       - ./configs:/app/configs
       - ./reports:/app/reports
+    depends_on:
+      - mlflow
 
   prometheus:
     image: prom/prometheus:latest
