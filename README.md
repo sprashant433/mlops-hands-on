@@ -7732,3 +7732,79 @@ Check dashboard:
 ```text
 Dashboards → MLOps → MLOps API Monitoring - Kubernetes
 ```
+
+### Step 115: Add Kubernetes Jaeger Deployment
+
+Added Jaeger to Kubernetes for trace visualization.
+
+Jaeger receives traces through OTLP gRPC and exposes a UI.
+
+Jaeger deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: mlops-local
+  labels:
+    app: jaeger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:latest
+          ports:
+            - containerPort: 16686
+            - containerPort: 4317
+          env:
+            - name: COLLECTOR_OTLP_ENABLED
+              value: "true"
+```
+
+Jaeger service:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-service
+  namespace: mlops-local
+  labels:
+    app: jaeger
+spec:
+  type: ClusterIP
+  selector:
+    app: jaeger
+  ports:
+    - name: ui
+      port: 16686
+      targetPort: 16686
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/jaeger-deployment.yaml
+kubectl apply -f k8s/jaeger-service.yaml
+kubectl rollout status deployment/jaeger -n mlops-local
+kubectl get pods -n mlops-local
+kubectl port-forward -n mlops-local service/jaeger-service 16686:16686
+```
+
+Open Jaeger:
+
+```text
+http://127.0.0.1:16686
+```

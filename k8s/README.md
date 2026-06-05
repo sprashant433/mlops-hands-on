@@ -285,3 +285,31 @@ Go to:
 ```text
 Dashboards → MLOps → MLOps API Monitoring - Kubernetes
 ```
+
+## Jaeger
+
+Apply Jaeger manifests:
+
+```bash
+kubectl apply -f k8s/jaeger-deployment.yaml
+kubectl apply -f k8s/jaeger-service.yaml
+```
+
+Check rollout:
+
+```bash
+kubectl rollout status deployment/jaeger -n mlops-local
+kubectl get pods -n mlops-local
+```
+
+Port forward:
+
+```bash
+kubectl port-forward -n mlops-local service/jaeger-service 16686:16686
+```
+
+Open:
+
+```text
+http://127.0.0.1:16686
+```
