@@ -7059,3 +7059,94 @@ Expected result:
   "span_id": "..."
 }
 ```
+
+### Step 107: Add Kubernetes ConfigMap
+
+Added a Kubernetes ConfigMap for FastAPI application configuration.
+
+The ConfigMap provides:
+
+```text
+configs/config.yaml
+```
+
+inside the API pod.
+
+ConfigMap manifest:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlops-api-config
+  namespace: mlops-local
+data:
+  config.yaml: |
+    project:
+      name: mlops-logistic-regression
+      version: 0.1.0
+
+    data:
+      raw_path: data/raw.csv
+      processed_path: data/processed.csv
+      target_column: loan_approved
+      test_size: 0.2
+      random_state: 42
+
+    model:
+      name: LogisticRegression
+      max_iter: 1000
+      output_path: models/logistic_regression.pkl
+      metrics_path: reports/metrics.json
+
+    mlflow:
+      tracking_uri: file:./mlruns
+      experiment_name: loan-approval-logistic-regression
+      registered_model_name: LoanApprovalModel
+
+    serving:
+      host: 0.0.0.0
+      port: 8000
+      model_stage: Production
+
+    monitoring:
+      prediction_log_path: data/predictions.csv
+      drift_alert_path: reports/drift_alert.json
+
+    tuning:
+      max_evals: 10
+```
+
+Deployment mount:
+
+```yaml
+volumeMounts:
+  - name: api-config
+    mountPath: /app/configs/config.yaml
+    subPath: config.yaml
+```
+
+Deployment volume:
+
+```yaml
+volumes:
+  - name: api-config
+    configMap:
+      name: mlops-api-config
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/api-configmap.yaml
+kubectl apply -f k8s/api-deployment.yaml
+kubectl rollout restart deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/mlops-api -n mlops-local
+kubectl get pods -n mlops-local
+```
+
+Verify config mounted:
+
+```bash
+kubectl exec -n mlops-local deployment/mlops-api -- cat /app/configs/config.yaml
+```

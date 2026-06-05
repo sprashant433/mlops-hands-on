@@ -24,3 +24,12 @@ spec:
           env:
             - name: PYTHONPATH
               value: /app/src
+        
+          volumeMounts:
+            - name: api-config
+              mountPath: /app/configs/config.yaml
+              subPath: config.yaml
+      volumes:
+        - name: api-config
+          configMap:
+            name: mlops-api-config

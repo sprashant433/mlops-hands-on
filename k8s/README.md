@@ -65,3 +65,30 @@ Test:
 ```bash
 curl http://127.0.0.1:8000/health
 ```
+
+## API ConfigMap
+
+Apply API config:
+
+```bash
+kubectl apply -f k8s/api-configmap.yaml
+```
+
+Apply updated deployment:
+
+```bash
+kubectl apply -f k8s/api-deployment.yaml
+```
+
+Restart deployment:
+
+```bash
+kubectl rollout restart deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/mlops-api -n mlops-local
+```
+
+Verify mounted config:
+
+```bash
+kubectl exec -n mlops-local deployment/mlops-api -- cat /app/configs/config.yaml
+```
