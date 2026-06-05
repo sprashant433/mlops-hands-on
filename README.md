@@ -9434,3 +9434,45 @@ black src tests
 flake8 src tests
 PYTHONPATH=src pytest
 ```
+
+### Step 130: Production Readiness Checklist
+
+Created a production readiness checklist.
+
+Created:
+
+```text
+docs/production-readiness-checklist.md
+```
+
+The checklist is used before promoting a model or deployment to production.
+
+It covers:
+
+```text
+Source Control
+Data Pipeline
+Model Training
+Hyperparameter Tuning
+Model Registry
+API Serving
+Docker
+CI/CD
+Monitoring
+Observability
+Logging
+Load Testing
+Drift Monitoring
+Kubernetes
+Release Evidence
+```
+
+This checklist acts as the final go/no-go review before a model or platform release.
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
