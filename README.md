@@ -6912,3 +6912,40 @@ git merge --no-ff develop -m "merge: develop into main"
 git tag v1.3-drift-monitoring
 git checkout develop
 ```
+
+## Phase 16 — Kubernetes
+
+### Step 104: Create Kubernetes Project Structure
+
+Created the Kubernetes manifest folder and base namespace.
+
+Kubernetes structure:
+
+```text
+k8s/
+├── README.md
+└── namespace.yaml
+```
+
+Namespace manifest:
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mlops-local
+```
+
+Run:
+
+```bash
+python -c "import yaml; yaml.safe_load(open('k8s/namespace.yaml'))"
+kubectl apply -f k8s/namespace.yaml
+kubectl get namespace mlops-local
+```
+
+Expected result:
+
+```text
+mlops-local namespace exists
+```
