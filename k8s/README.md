@@ -517,3 +517,17 @@ Check resources:
 ```bash
 kubectl get all -n mlops-local
 ```
+
+## Kubernetes Teardown
+
+Delete full stack:
+
+```bash
+./scripts/delete_k8s.sh
+```
+
+Redeploy full stack:
+
+```bash
+./scripts/deploy_k8s.sh
+```

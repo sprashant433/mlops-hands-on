@@ -8597,3 +8597,63 @@ flake8 src tests scripts locustfile.py
 PYTHONPATH=src pytest
 ./scripts/deploy_k8s.sh
 ```
+
+### Step 124: Add Kubernetes Teardown Script
+
+Added a script to delete the local Kubernetes MLOps stack.
+
+The teardown script deletes:
+
+```text
+mlops-local namespace
+```
+
+Implementation:
+
+```bash
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+kubectl delete namespace mlops-local --ignore-not-found=true
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+
+def test_k8s_delete_script_exists():
+    script = Path("scripts/delete_k8s.sh")
+
+    assert script.exists()
+
+
+def test_k8s_delete_script_deletes_namespace():
+    content = Path("scripts/delete_k8s.sh").read_text()
+
+    assert "kubectl delete namespace mlops-local" in content
+    assert "--ignore-not-found=true" in content
+```
+
+Run:
+
+```bash
+chmod +x scripts/delete_k8s.sh
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+```
+
+Delete stack:
+
+```bash
+./scripts/delete_k8s.sh
+```
+
+Redeploy stack:
+
+```bash
+./scripts/deploy_k8s.sh
+```
