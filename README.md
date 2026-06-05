@@ -8426,3 +8426,69 @@ Grafana Loki queries:
 ```logql
 {job="kubernetes-containers"}
 ```
+
+### Step 122: Add Kubernetes Smoke Test Script
+
+Added a Kubernetes API smoke test script.
+
+The smoke test checks:
+
+```text
+/health
+/predict
+```
+
+Implementation:
+
+```bash
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+API_URL="${API_URL:-http://127.0.0.1:8000}"
+
+curl -s "$API_URL/health"
+
+curl -s -X POST "$API_URL/predict" \
+  -H "Content-Type: application/json" \
+  -H "x-request-id: k8s-smoke-test" \
+  -d '{
+    "age": 35,
+    "income": 75000,
+    "loan_amount": 25000,
+    "credit_score": 700,
+    "employment_years": 5,
+    "debt_to_income": 0.3
+  }'
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+
+def test_k8s_smoke_script_exists():
+    script = Path("scripts/smoke_test_k8s_api.sh")
+
+    assert script.exists()
+
+
+def test_k8s_smoke_script_contains_health_and_predict_checks():
+    content = Path("scripts/smoke_test_k8s_api.sh").read_text()
+
+    assert "/health" in content
+    assert "/predict" in content
+    assert "k8s-smoke-test" in content
+```
+
+Run:
+
+```bash
+chmod +x scripts/smoke_test_k8s_api.sh
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+./scripts/smoke_test_k8s_api.sh
+```

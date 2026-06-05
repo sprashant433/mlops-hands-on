@@ -489,3 +489,17 @@ Grafana Explore queries:
 ```logql
 {job="kubernetes-containers"}
 ```
+
+## Kubernetes API Smoke Test
+
+Port forward API service:
+
+```bash
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+```
+
+Run smoke test:
+
+```bash
+./scripts/smoke_test_k8s_api.sh
+```
