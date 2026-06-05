@@ -30,23 +30,8 @@ jobs:
           flake8 src tests
           PYTHONPATH=src pytest
 
-      - name: Run ML pipeline
-        run: PYTHONPATH=src python src/mlops_lr/pipeline.py
-
-      - name: Run tuning pipeline
-        run: PYTHONPATH=src python src/mlops_lr/tuning_pipeline.py
-
-      - name: Run drift monitoring pipeline
-        run: PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
-
-      - name: Run retraining pipeline
-        run: PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
-
-      - name: Generate release manifest
-        run: PYTHONPATH=src python src/mlops_lr/release_manifest.py
-
-      - name: Build Docker image
-        run: docker build -t mlops-logistic-regression-api:${{ github.sha }} .
+      - name: Run production flow
+        run: PYTHONPATH=src python src/mlops_lr/production_flow.py --image-tag ${{ github.sha }}
 
       - name: Upload reports
         uses: actions/upload-artifact@v4

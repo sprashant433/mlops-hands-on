@@ -9689,3 +9689,179 @@ PYTHONPATH=src python src/mlops_lr/release_manifest.py
 python scripts/generate_release_notes.py
 cat reports/release_notes.md
 ```
+
+### Step 133: Production Orchestrator
+
+Created a reusable Python production orchestrator.
+
+Created:
+
+```text
+src/mlops_lr/production_flow.py
+```
+
+This replaces a long shell-only production flow with a testable Python orchestration layer.
+
+The orchestrator runs:
+
+```text
+Quality Checks
+ML Pipeline
+Hyperparameter Tuning Pipeline
+Drift Monitoring Pipeline
+Retraining Pipeline
+Release Manifest Generation
+Docker Image Build
+```
+
+Implementation:
+
+```python
+import argparse
+import subprocess
+from typing import Sequence
+
+
+def run_command(command: Sequence[str]) -> None:
+    subprocess.run(command, check=True)
+
+
+def run_quality_checks() -> None:
+    run_command(["black", "src", "tests"])
+    run_command(["flake8", "src", "tests"])
+    run_command(["pytest"])
+
+
+def run_ml_pipeline() -> None:
+    run_command(["python", "src/mlops_lr/pipeline.py"])
+
+
+def run_tuning_pipeline() -> None:
+    run_command(["python", "src/mlops_lr/tuning_pipeline.py"])
+
+
+def run_drift_pipeline() -> None:
+    run_command(["python", "src/mlops_lr/drift_pipeline.py"])
+
+
+def run_retraining_pipeline() -> None:
+    run_command(["python", "src/mlops_lr/retraining_pipeline.py"])
+
+
+def run_release_manifest() -> None:
+    run_command(["python", "src/mlops_lr/release_manifest.py"])
+
+
+def build_docker_image(image_tag: str) -> None:
+    run_command(
+        [
+            "docker",
+            "build",
+            "-t",
+            f"mlops-logistic-regression-api:{image_tag}",
+            ".",
+        ]
+    )
+
+
+def run_production_flow(image_tag: str = "local", skip_docker: bool = False) -> None:
+    run_quality_checks()
+    run_ml_pipeline()
+    run_tuning_pipeline()
+    run_drift_pipeline()
+    run_retraining_pipeline()
+    run_release_manifest()
+
+    if not skip_docker:
+        build_docker_image(image_tag=image_tag)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--image-tag", default="local")
+    parser.add_argument("--skip-docker", action="store_true")
+    args = parser.parse_args()
+
+    run_production_flow(
+        image_tag=args.image_tag,
+        skip_docker=args.skip_docker,
+    )
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Tests:
+
+```python
+from mlops_lr.production_flow import run_production_flow
+
+
+def test_run_production_flow_runs_all_stages(monkeypatch):
+    commands = []
+
+    def fake_run_command(command):
+        commands.append(command)
+
+    monkeypatch.setattr("mlops_lr.production_flow.run_command", fake_run_command)
+
+    run_production_flow(image_tag="test-tag")
+
+    assert ["black", "src", "tests"] in commands
+    assert ["flake8", "src", "tests"] in commands
+    assert ["pytest"] in commands
+    assert ["python", "src/mlops_lr/pipeline.py"] in commands
+    assert ["python", "src/mlops_lr/tuning_pipeline.py"] in commands
+    assert ["python", "src/mlops_lr/drift_pipeline.py"] in commands
+    assert ["python", "src/mlops_lr/retraining_pipeline.py"] in commands
+    assert ["python", "src/mlops_lr/release_manifest.py"] in commands
+    assert [
+        "docker",
+        "build",
+        "-t",
+        "mlops-logistic-regression-api:test-tag",
+        ".",
+    ] in commands
+
+
+def test_run_production_flow_can_skip_docker(monkeypatch):
+    commands = []
+
+    def fake_run_command(command):
+        commands.append(command)
+
+    monkeypatch.setattr("mlops_lr.production_flow.run_command", fake_run_command)
+
+    run_production_flow(skip_docker=True)
+
+    assert not any(command[0] == "docker" for command in commands)
+```
+
+Updated shell wrapper:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE_TAG="${IMAGE_TAG:-local}"
+
+PYTHONPATH=src python src/mlops_lr/production_flow.py --image-tag "$IMAGE_TAG"
+```
+
+Updated GitHub Actions workflow to call the orchestrator:
+
+```yaml
+- name: Run production flow
+  run: PYTHONPATH=src python src/mlops_lr/production_flow.py --image-tag ${{ github.sha }}
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/production_flow.py --skip-docker
+IMAGE_TAG=local ./scripts/run_production_flow.sh
+```

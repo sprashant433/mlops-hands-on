@@ -8,14 +8,9 @@ def test_production_flow_script_exists():
     assert script.read_text().startswith("#!/usr/bin/env bash")
 
 
-def test_production_flow_script_runs_core_stages():
+def test_production_flow_script_calls_python_orchestrator():
     script = Path("scripts/run_production_flow.sh").read_text()
 
-    assert "pytest" in script
-    assert "src/mlops_lr/pipeline.py" in script
-    assert "src/mlops_lr/tuning_pipeline.py" in script
-    assert "src/mlops_lr/drift_pipeline.py" in script
-    assert "src/mlops_lr/retraining_pipeline.py" in script
-    assert "src/mlops_lr/release_manifest.py" in script
-    assert "docker build" in script
-    assert "scripts/generate_release_notes.py" in script
+    assert "src/mlops_lr/production_flow.py" in script
+    assert "--image-tag" in script
+    assert "IMAGE_TAG" in script
