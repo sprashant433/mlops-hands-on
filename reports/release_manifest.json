@@ -1,0 +1,27 @@
+{
+  "generated_at": "2026-06-05T07:48:56.412626+00:00",
+  "project": "mlops-logistic-regression",
+  "git": {
+    "branch": "develop",
+    "commit": "36ea1d6ae63f5ce491c9661f2506b0baa9f7ac0d"
+  },
+  "docker": {
+    "image": "mlops-logistic-regression-api",
+    "tag": "36ea1d6ae63f5ce491c9661f2506b0baa9f7ac0d",
+    "full_name": "mlops-logistic-regression-api:36ea1d6ae63f5ce491c9661f2506b0baa9f7ac0d"
+  },
+  "mlflow": {
+    "tracking_uri": "file:./mlruns",
+    "experiment_name": "loan-approval-logistic-regression",
+    "registered_model_name": "LoanApprovalModel",
+    "serving_stage": "Production"
+  },
+  "services": {
+    "api": "http://127.0.0.1:8000",
+    "mlflow": "http://127.0.0.1:5000",
+    "prometheus": "http://127.0.0.1:9090",
+    "grafana": "http://127.0.0.1:3000",
+    "jaeger": "http://127.0.0.1:16686",
+    "loki": "http://127.0.0.1:3100"
+  }
+}

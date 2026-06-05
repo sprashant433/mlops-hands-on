@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from mlops_lr.release_manifest import build_release_manifest, save_release_manifest
 
 

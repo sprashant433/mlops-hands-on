@@ -10,9 +10,7 @@ def test_production_flow_workflow_exists():
 
 
 def test_production_flow_workflow_has_manual_trigger():
-    workflow = yaml.safe_load(
-        Path(".github/workflows/production-flow.yml").read_text()
-    )
+    workflow = yaml.safe_load(Path(".github/workflows/production-flow.yml").read_text())
 
     assert workflow["name"] == "Production Flow"
     assert "workflow_dispatch" in workflow[True]
