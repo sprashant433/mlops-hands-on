@@ -8220,3 +8220,85 @@ kubectl get daemonset -n mlops-local
 kubectl get pods -n mlops-local -l app=promtail
 kubectl logs -n mlops-local -l app=promtail --tail 50
 ```
+
+### Step 120: Add Loki Datasource to Kubernetes Grafana
+
+Added Loki as a Grafana datasource in Kubernetes.
+
+Grafana datasource flow:
+
+```text
+Grafana
+→ Prometheus datasource
+→ API metrics
+
+Grafana
+→ Loki datasource
+→ Kubernetes pod logs
+```
+
+Datasource ConfigMap:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: mlops-local
+data:
+  prometheus.yml: |
+    apiVersion: 1
+
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus-service:9090
+        isDefault: true
+
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki-service:3100
+        isDefault: false
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/grafana-datasource-configmap.yaml
+kubectl rollout restart deployment/grafana -n mlops-local
+kubectl rollout status deployment/grafana -n mlops-local
+kubectl port-forward -n mlops-local service/grafana-service 3000:3000
+```
+
+Open Grafana:
+
+```text
+http://127.0.0.1:3000
+```
+
+Check datasources:
+
+```text
+Connections → Data sources
+```
+
+Expected datasources:
+
+```text
+Prometheus
+Loki
+```
+
+Check Loki Explore:
+
+```text
+Explore → Loki
+```
+
+Query:
+
+```logql
+{namespace="mlops-local"}
+```

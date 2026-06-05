@@ -14,7 +14,7 @@ spec:
       labels:
         app: promtail
     spec:
-      serviceAccountName: default
+      serviceAccountName: promtail
       containers:
         - name: promtail
           image: grafana/promtail:latest
@@ -28,6 +28,12 @@ spec:
               subPath: promtail-config.yml
             - name: pods
               mountPath: /var/log/pods
+              readOnly: true
+            - name: containers
+              mountPath: /var/log/containers
+              readOnly: true
+            - name: docker-containers
+              mountPath: /var/lib/docker/containers
               readOnly: true
           resources:
             requests:
@@ -43,3 +49,9 @@ spec:
         - name: pods
           hostPath:
             path: /var/log/pods
+        - name: containers
+          hostPath:
+            path: /var/log/containers
+        - name: docker-containers
+          hostPath:
+            path: /var/lib/docker/containers

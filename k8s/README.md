@@ -414,3 +414,36 @@ Check logs:
 ```bash
 kubectl logs -n mlops-local -l app=promtail --tail 50
 ```
+
+## Grafana Loki Datasource
+
+Apply updated datasource ConfigMap:
+
+```bash
+kubectl apply -f k8s/grafana-datasource-configmap.yaml
+```
+
+Restart Grafana:
+
+```bash
+kubectl rollout restart deployment/grafana -n mlops-local
+kubectl rollout status deployment/grafana -n mlops-local
+```
+
+Open Grafana:
+
+```bash
+kubectl port-forward -n mlops-local service/grafana-service 3000:3000
+```
+
+Check:
+
+```text
+Connections → Data sources → Loki
+```
+
+Loki query:
+
+```logql
+{namespace="mlops-local"}
+```
