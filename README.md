@@ -9043,3 +9043,168 @@ Check containers:
 docker compose ps
 docker logs mlops-mlflow --tail 30
 ```
+
+### Step 127: Production Release Manifest
+
+Started Phase 17: Production-Level MLOps.
+
+Created a release manifest generator in `src/mlops_lr/release_manifest.py`.
+
+The release manifest connects:
+
+```text
+Git Commit
+Git Branch
+Docker Image
+MLflow Experiment
+MLflow Registered Model
+Serving Stage
+Runtime Service URLs
+```
+
+This gives every deployment a traceable production record.
+
+Implementation:
+
+```python
+import json
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+from mlops_lr.config import load_config
+
+
+def _run_git_command(command: list[str]) -> Optional[str]:
+    try:
+        result = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return None
+    except FileNotFoundError:
+        return None
+
+
+def get_git_commit() -> Optional[str]:
+    return _run_git_command(["git", "rev-parse", "HEAD"])
+
+
+def get_git_branch() -> Optional[str]:
+    return _run_git_command(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+
+
+def build_release_manifest(
+    image_name: str = "mlops-logistic-regression-api",
+    image_tag: Optional[str] = None,
+) -> dict:
+    config = load_config()
+
+    git_commit = get_git_commit()
+    git_branch = get_git_branch()
+    resolved_image_tag = image_tag or git_commit or "local"
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "project": config.project.name,
+        "git": {
+            "branch": git_branch,
+            "commit": git_commit,
+        },
+        "docker": {
+            "image": image_name,
+            "tag": resolved_image_tag,
+            "full_name": f"{image_name}:{resolved_image_tag}",
+        },
+        "mlflow": {
+            "tracking_uri": config.mlflow.tracking_uri,
+            "experiment_name": config.mlflow.experiment_name,
+            "registered_model_name": config.mlflow.registered_model_name,
+            "serving_stage": config.serving.model_stage,
+        },
+        "services": {
+            "api": "http://127.0.0.1:8000",
+            "mlflow": "http://127.0.0.1:5000",
+            "prometheus": "http://127.0.0.1:9090",
+            "grafana": "http://127.0.0.1:3000",
+            "jaeger": "http://127.0.0.1:16686",
+            "loki": "http://127.0.0.1:3100",
+        },
+    }
+
+
+def save_release_manifest(
+    output_path: str = "reports/release_manifest.json",
+    image_name: str = "mlops-logistic-regression-api",
+    image_tag: Optional[str] = None,
+) -> dict:
+    manifest = build_release_manifest(
+        image_name=image_name,
+        image_tag=image_tag,
+    )
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    return manifest
+
+
+if __name__ == "__main__":
+    save_release_manifest()
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+from mlops_lr.release_manifest import build_release_manifest, save_release_manifest
+
+
+def test_build_release_manifest_contains_production_traceability():
+    manifest = build_release_manifest(
+        image_name="test-api",
+        image_tag="test-tag",
+    )
+
+    assert manifest["project"]
+    assert manifest["docker"]["image"] == "test-api"
+    assert manifest["docker"]["tag"] == "test-tag"
+    assert manifest["docker"]["full_name"] == "test-api:test-tag"
+
+    assert "git" in manifest
+    assert "mlflow" in manifest
+    assert "services" in manifest
+
+    assert manifest["mlflow"]["registered_model_name"]
+    assert manifest["mlflow"]["serving_stage"]
+
+
+def test_save_release_manifest(tmp_path):
+    output_path = tmp_path / "release_manifest.json"
+
+    manifest = save_release_manifest(
+        output_path=str(output_path),
+        image_name="test-api",
+        image_tag="test-tag",
+    )
+
+    assert output_path.exists()
+    assert manifest["docker"]["full_name"] == "test-api:test-tag"
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/release_manifest.py
+cat reports/release_manifest.json
+```
