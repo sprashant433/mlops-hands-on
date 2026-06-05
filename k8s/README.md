@@ -313,3 +313,20 @@ Open:
 ```text
 http://127.0.0.1:16686
 ```
+
+## OpenTelemetry Collector
+
+Apply collector manifests:
+
+```bash
+kubectl apply -f k8s/otel-collector-configmap.yaml
+kubectl apply -f k8s/otel-collector-deployment.yaml
+kubectl apply -f k8s/otel-collector-service.yaml
+```
+
+Check rollout:
+
+```bash
+kubectl rollout status deployment/otel-collector -n mlops-local
+kubectl logs -n mlops-local deployment/otel-collector
+```

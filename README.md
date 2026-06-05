@@ -7808,3 +7808,119 @@ Open Jaeger:
 ```text
 http://127.0.0.1:16686
 ```
+
+### Step 116: Add Kubernetes OpenTelemetry Collector
+
+Added OpenTelemetry Collector to Kubernetes.
+
+Trace flow:
+
+```text
+FastAPI pod
+→ otel-collector:4317
+→ jaeger-service:4317
+→ Jaeger UI
+```
+
+Collector ConfigMap:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: mlops-local
+data:
+  otel-collector-config.yml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      batch:
+
+    exporters:
+      otlp/jaeger:
+        endpoint: jaeger-service:4317
+        tls:
+          insecure: true
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlp/jaeger]
+```
+
+Collector deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: mlops-local
+  labels:
+    app: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector:latest
+          command:
+            - /otelcol
+            - --config=/etc/otel-collector-config.yml
+          ports:
+            - containerPort: 4317
+            - containerPort: 4318
+          volumeMounts:
+            - name: otel-collector-config
+              mountPath: /etc/otel-collector-config.yml
+              subPath: otel-collector-config.yml
+```
+
+Collector service:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: mlops-local
+  labels:
+    app: otel-collector
+spec:
+  type: ClusterIP
+  selector:
+    app: otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/otel-collector-configmap.yaml
+kubectl apply -f k8s/otel-collector-deployment.yaml
+kubectl apply -f k8s/otel-collector-service.yaml
+kubectl rollout status deployment/otel-collector -n mlops-local
+kubectl logs -n mlops-local deployment/otel-collector
+```
