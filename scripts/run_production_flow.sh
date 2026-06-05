@@ -21,6 +21,9 @@ PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
 echo "Generating release manifest"
 PYTHONPATH=src python src/mlops_lr/release_manifest.py
 
+echo "Generating release notes"
+python scripts/generate_release_notes.py
+
 echo "Building Docker image"
 docker build -t mlops-logistic-regression-api:local .
 

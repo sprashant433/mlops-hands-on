@@ -18,3 +18,4 @@ def test_production_flow_script_runs_core_stages():
     assert "src/mlops_lr/retraining_pipeline.py" in script
     assert "src/mlops_lr/release_manifest.py" in script
     assert "docker build" in script
+    assert "scripts/generate_release_notes.py" in script

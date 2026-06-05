@@ -9476,3 +9476,216 @@ black src tests
 flake8 src tests
 PYTHONPATH=src pytest
 ```
+
+### Step 131: Release Notes Generator
+
+Created a release notes generator in `scripts/generate_release_notes.py`.
+
+The generator reads:
+
+```text
+reports/release_manifest.json
+```
+
+And creates:
+
+```text
+reports/release_notes.md
+```
+
+The release notes include:
+
+```text
+Project
+Generated Timestamp
+Git Branch
+Git Commit
+Docker Image
+Docker Tag
+MLflow Tracking URI
+MLflow Experiment
+MLflow Registered Model
+Serving Stage
+Service URLs
+```
+
+Implementation:
+
+```python
+import argparse
+import json
+from pathlib import Path
+
+
+def load_release_manifest(manifest_path: str) -> dict:
+    return json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+
+
+def build_release_notes(manifest: dict) -> str:
+    project = manifest["project"]
+    generated_at = manifest["generated_at"]
+    git = manifest["git"]
+    docker = manifest["docker"]
+    mlflow = manifest["mlflow"]
+    services = manifest["services"]
+
+    return f"""# Release Notes
+
+## Summary
+
+Project `{project}` production release generated at `{generated_at}`.
+
+## Git
+
+- Branch: `{git["branch"]}`
+- Commit: `{git["commit"]}`
+
+## Docker
+
+- Image: `{docker["image"]}`
+- Tag: `{docker["tag"]}`
+- Full image: `{docker["full_name"]}`
+
+## MLflow
+
+- Tracking URI: `{mlflow["tracking_uri"]}`
+- Experiment: `{mlflow["experiment_name"]}`
+- Registered model: `{mlflow["registered_model_name"]}`
+- Serving stage: `{mlflow["serving_stage"]}`
+
+## Services
+
+- API: `{services["api"]}`
+- MLflow: `{services["mlflow"]}`
+- Prometheus: `{services["prometheus"]}`
+- Grafana: `{services["grafana"]}`
+- Jaeger: `{services["jaeger"]}`
+- Loki: `{services["loki"]}`
+"""
+
+
+def save_release_notes(
+    manifest_path: str = "reports/release_manifest.json",
+    output_path: str = "reports/release_notes.md",
+) -> str:
+    manifest = load_release_manifest(manifest_path)
+    notes = build_release_notes(manifest)
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(notes, encoding="utf-8")
+
+    return notes
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--manifest-path",
+        default="reports/release_manifest.json",
+    )
+    parser.add_argument(
+        "--output-path",
+        default="reports/release_notes.md",
+    )
+    args = parser.parse_args()
+
+    save_release_notes(
+        manifest_path=args.manifest_path,
+        output_path=args.output_path,
+    )
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Tests:
+
+```python
+import json
+
+from scripts.generate_release_notes import build_release_notes, save_release_notes
+
+
+def _sample_manifest() -> dict:
+    return {
+        "generated_at": "2026-06-05T00:00:00+00:00",
+        "project": "mlops-logistic-regression",
+        "git": {
+            "branch": "develop",
+            "commit": "abc123",
+        },
+        "docker": {
+            "image": "mlops-logistic-regression-api",
+            "tag": "abc123",
+            "full_name": "mlops-logistic-regression-api:abc123",
+        },
+        "mlflow": {
+            "tracking_uri": "file:./mlruns",
+            "experiment_name": "loan-approval-logistic-regression",
+            "registered_model_name": "LoanApprovalModel",
+            "serving_stage": "Production",
+        },
+        "services": {
+            "api": "http://127.0.0.1:8000",
+            "mlflow": "http://127.0.0.1:5000",
+            "prometheus": "http://127.0.0.1:9090",
+            "grafana": "http://127.0.0.1:3000",
+            "jaeger": "http://127.0.0.1:16686",
+            "loki": "http://127.0.0.1:3100",
+        },
+    }
+
+
+def test_build_release_notes_contains_release_metadata():
+    notes = build_release_notes(_sample_manifest())
+
+    assert "# Release Notes" in notes
+    assert "mlops-logistic-regression" in notes
+    assert "abc123" in notes
+    assert "LoanApprovalModel" in notes
+    assert "http://127.0.0.1:3000" in notes
+
+
+def test_save_release_notes(tmp_path):
+    manifest_path = tmp_path / "release_manifest.json"
+    output_path = tmp_path / "release_notes.md"
+
+    manifest_path.write_text(json.dumps(_sample_manifest()), encoding="utf-8")
+
+    notes = save_release_notes(
+        manifest_path=str(manifest_path),
+        output_path=str(output_path),
+    )
+
+    assert output_path.exists()
+    assert "Release Notes" in notes
+    assert "mlops-logistic-regression-api:abc123" in output_path.read_text(
+        encoding="utf-8"
+    )
+```
+
+Updated production flow script:
+
+```bash
+echo "Generating release manifest"
+PYTHONPATH=src python src/mlops_lr/release_manifest.py
+
+echo "Generating release notes"
+python scripts/generate_release_notes.py
+
+echo "Building Docker image"
+docker build -t mlops-logistic-regression-api:local .
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/release_manifest.py
+python scripts/generate_release_notes.py
+cat reports/release_notes.md
+```
