@@ -8916,3 +8916,1061 @@ Phase 16 milestone tag:
 ```text
 v1.4-kubernetes
 ```
+
+### Step 62A: Containerize MLflow Tracking Server
+
+Containerized MLflow as a Docker Compose service.
+
+Before this step, MLflow was started manually with:
+
+```bash
+mlflow ui
+```
+
+Now MLflow runs with the rest of the local platform using:
+
+```bash
+docker compose up
+```
+
+The MLflow container serves the shared local tracking store:
+
+```text
+./mlruns → /app/mlruns
+```
+
+This keeps experiments, artifacts, registered models, and model versions available to both:
+
+```text
+FastAPI container
+MLflow tracking server container
+```
+
+Updated `docker-compose.yml` with a new `mlflow` service:
+
+```yaml
+mlflow:
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: mlops-logistic-regression-api
+  container_name: mlops-mlflow
+  command:
+    [
+      "mlflow",
+      "server",
+      "--backend-store-uri",
+      "/app/mlruns",
+      "--default-artifact-root",
+      "/app/mlruns",
+      "--host",
+      "0.0.0.0",
+      "--port",
+      "5000",
+    ]
+  ports:
+    - "5000:5000"
+  environment:
+    - PYTHONPATH=/app/src
+  volumes:
+    - ./mlruns:/app/mlruns
+```
+
+Updated the API service so it starts after MLflow:
+
+```yaml
+api:
+  depends_on:
+    - mlflow
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+import yaml
+
+
+def test_docker_compose_has_mlflow_service():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text())
+
+    mlflow = compose["services"]["mlflow"]
+
+    assert mlflow["container_name"] == "mlops-mlflow"
+    assert "5000:5000" in mlflow["ports"]
+    assert "./mlruns:/app/mlruns" in mlflow["volumes"]
+
+
+def test_mlflow_service_runs_tracking_server():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text())
+
+    command = compose["services"]["mlflow"]["command"]
+
+    assert "mlflow" in command
+    assert "server" in command
+    assert "--backend-store-uri" in command
+    assert "/app/mlruns" in command
+    assert "--default-artifact-root" in command
+    assert "--port" in command
+    assert "5000" in command
+
+
+def test_api_depends_on_mlflow():
+    compose = yaml.safe_load(Path("docker-compose.yml").read_text())
+
+    assert "mlflow" in compose["services"]["api"]["depends_on"]
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+docker compose up --build
+```
+
+Open MLflow UI:
+
+```text
+http://127.0.0.1:5000
+```
+
+Check containers:
+
+```bash
+docker compose ps
+docker logs mlops-mlflow --tail 30
+```
+
+### Step 127: Production Release Manifest
+
+Started Phase 17: Production-Level MLOps.
+
+Created a release manifest generator in `src/mlops_lr/release_manifest.py`.
+
+The release manifest connects:
+
+```text
+Git Commit
+Git Branch
+Docker Image
+MLflow Experiment
+MLflow Registered Model
+Serving Stage
+Runtime Service URLs
+```
+
+This gives every deployment a traceable production record.
+
+Implementation:
+
+```python
+import json
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+from mlops_lr.config import load_config
+
+
+def _run_git_command(command: list[str]) -> Optional[str]:
+    try:
+        result = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return None
+    except FileNotFoundError:
+        return None
+
+
+def get_git_commit() -> Optional[str]:
+    return _run_git_command(["git", "rev-parse", "HEAD"])
+
+
+def get_git_branch() -> Optional[str]:
+    return _run_git_command(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+
+
+def build_release_manifest(
+    image_name: str = "mlops-logistic-regression-api",
+    image_tag: Optional[str] = None,
+) -> dict:
+    config = load_config()
+
+    git_commit = get_git_commit()
+    git_branch = get_git_branch()
+    resolved_image_tag = image_tag or git_commit or "local"
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "project": config.project.name,
+        "git": {
+            "branch": git_branch,
+            "commit": git_commit,
+        },
+        "docker": {
+            "image": image_name,
+            "tag": resolved_image_tag,
+            "full_name": f"{image_name}:{resolved_image_tag}",
+        },
+        "mlflow": {
+            "tracking_uri": config.mlflow.tracking_uri,
+            "experiment_name": config.mlflow.experiment_name,
+            "registered_model_name": config.mlflow.registered_model_name,
+            "serving_stage": config.serving.model_stage,
+        },
+        "services": {
+            "api": "http://127.0.0.1:8000",
+            "mlflow": "http://127.0.0.1:5000",
+            "prometheus": "http://127.0.0.1:9090",
+            "grafana": "http://127.0.0.1:3000",
+            "jaeger": "http://127.0.0.1:16686",
+            "loki": "http://127.0.0.1:3100",
+        },
+    }
+
+
+def save_release_manifest(
+    output_path: str = "reports/release_manifest.json",
+    image_name: str = "mlops-logistic-regression-api",
+    image_tag: Optional[str] = None,
+) -> dict:
+    manifest = build_release_manifest(
+        image_name=image_name,
+        image_tag=image_tag,
+    )
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    return manifest
+
+
+if __name__ == "__main__":
+    save_release_manifest()
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+from mlops_lr.release_manifest import build_release_manifest, save_release_manifest
+
+
+def test_build_release_manifest_contains_production_traceability():
+    manifest = build_release_manifest(
+        image_name="test-api",
+        image_tag="test-tag",
+    )
+
+    assert manifest["project"]
+    assert manifest["docker"]["image"] == "test-api"
+    assert manifest["docker"]["tag"] == "test-tag"
+    assert manifest["docker"]["full_name"] == "test-api:test-tag"
+
+    assert "git" in manifest
+    assert "mlflow" in manifest
+    assert "services" in manifest
+
+    assert manifest["mlflow"]["registered_model_name"]
+    assert manifest["mlflow"]["serving_stage"]
+
+
+def test_save_release_manifest(tmp_path):
+    output_path = tmp_path / "release_manifest.json"
+
+    manifest = save_release_manifest(
+        output_path=str(output_path),
+        image_name="test-api",
+        image_tag="test-tag",
+    )
+
+    assert output_path.exists()
+    assert manifest["docker"]["full_name"] == "test-api:test-tag"
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/release_manifest.py
+cat reports/release_manifest.json
+```
+
+### Step 128: End-to-End Production Flow Script
+
+Created a single production flow script in `scripts/run_production_flow.sh`.
+
+This script runs the complete local production MLOps flow:
+
+```text
+Quality Checks
+→ ML Pipeline
+→ Hyperparameter Tuning
+→ Drift Monitoring
+→ Retraining Trigger Evaluation
+→ Release Manifest Generation
+→ Docker Image Build
+```
+
+Implementation:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Running quality checks"
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+
+echo "Running ML pipeline"
+PYTHONPATH=src python src/mlops_lr/pipeline.py
+
+echo "Running hyperparameter tuning pipeline"
+PYTHONPATH=src python src/mlops_lr/tuning_pipeline.py
+
+echo "Running drift monitoring pipeline"
+PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+
+echo "Evaluating retraining trigger"
+PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
+
+echo "Generating release manifest"
+PYTHONPATH=src python src/mlops_lr/release_manifest.py
+
+echo "Building Docker image"
+docker build -t mlops-logistic-regression-api:local .
+
+echo "Production flow completed"
+```
+
+Make it executable:
+
+```bash
+chmod +x scripts/run_production_flow.sh
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+
+def test_production_flow_script_exists():
+    script = Path("scripts/run_production_flow.sh")
+
+    assert script.exists()
+    assert script.read_text().startswith("#!/usr/bin/env bash")
+
+
+def test_production_flow_script_runs_core_stages():
+    script = Path("scripts/run_production_flow.sh").read_text()
+
+    assert "pytest" in script
+    assert "src/mlops_lr/pipeline.py" in script
+    assert "src/mlops_lr/tuning_pipeline.py" in script
+    assert "src/mlops_lr/drift_pipeline.py" in script
+    assert "src/mlops_lr/retraining_pipeline.py" in script
+    assert "src/mlops_lr/release_manifest.py" in script
+    assert "docker build" in script
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+./scripts/run_production_flow.sh
+```
+
+### Step 129: Production Flow GitHub Actions Workflow
+
+Created a GitHub Actions workflow for the complete production flow.
+
+The workflow runs on:
+
+```text
+Manual trigger
+Push to main
+```
+
+Created:
+
+```text
+.github/workflows/production-flow.yml
+```
+
+The workflow runs:
+
+```text
+Checkout Repository
+Set Up Python
+Install Dependencies
+Quality Checks
+ML Pipeline
+Tuning Pipeline
+Drift Monitoring Pipeline
+Retraining Pipeline
+Release Manifest Generation
+Docker Image Build
+Upload Reports
+```
+
+Implementation:
+
+```yaml
+name: Production Flow
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  production-flow:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+
+      - name: Run quality checks
+        run: |
+          black --check src tests
+          flake8 src tests
+          PYTHONPATH=src pytest
+
+      - name: Run ML pipeline
+        run: PYTHONPATH=src python src/mlops_lr/pipeline.py
+
+      - name: Run tuning pipeline
+        run: PYTHONPATH=src python src/mlops_lr/tuning_pipeline.py
+
+      - name: Run drift monitoring pipeline
+        run: PYTHONPATH=src python src/mlops_lr/drift_pipeline.py
+
+      - name: Run retraining pipeline
+        run: PYTHONPATH=src python src/mlops_lr/retraining_pipeline.py
+
+      - name: Generate release manifest
+        run: PYTHONPATH=src python src/mlops_lr/release_manifest.py
+
+      - name: Build Docker image
+        run: docker build -t mlops-logistic-regression-api:${{ github.sha }} .
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-flow-reports
+          path: |
+            reports/
+            models/
+```
+
+Tests:
+
+```python
+from pathlib import Path
+
+import yaml
+
+
+def test_production_flow_workflow_exists():
+    workflow_path = Path(".github/workflows/production-flow.yml")
+
+    assert workflow_path.exists()
+
+
+def test_production_flow_workflow_has_manual_trigger():
+    workflow = yaml.safe_load(
+        Path(".github/workflows/production-flow.yml").read_text()
+    )
+
+    assert workflow["name"] == "Production Flow"
+    assert "workflow_dispatch" in workflow[True]
+
+
+def test_production_flow_workflow_runs_core_steps():
+    workflow_text = Path(".github/workflows/production-flow.yml").read_text()
+
+    assert "src/mlops_lr/pipeline.py" in workflow_text
+    assert "src/mlops_lr/tuning_pipeline.py" in workflow_text
+    assert "src/mlops_lr/drift_pipeline.py" in workflow_text
+    assert "src/mlops_lr/retraining_pipeline.py" in workflow_text
+    assert "src/mlops_lr/release_manifest.py" in workflow_text
+    assert "docker build" in workflow_text
+    assert "actions/upload-artifact@v4" in workflow_text
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 130: Production Readiness Checklist
+
+Created a production readiness checklist.
+
+Created:
+
+```text
+docs/production-readiness-checklist.md
+```
+
+The checklist is used before promoting a model or deployment to production.
+
+It covers:
+
+```text
+Source Control
+Data Pipeline
+Model Training
+Hyperparameter Tuning
+Model Registry
+API Serving
+Docker
+CI/CD
+Monitoring
+Observability
+Logging
+Load Testing
+Drift Monitoring
+Kubernetes
+Release Evidence
+```
+
+This checklist acts as the final go/no-go review before a model or platform release.
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+```
+
+### Step 131: Release Notes Generator
+
+Created a release notes generator in `scripts/generate_release_notes.py`.
+
+The generator reads:
+
+```text
+reports/release_manifest.json
+```
+
+And creates:
+
+```text
+reports/release_notes.md
+```
+
+The release notes include:
+
+```text
+Project
+Generated Timestamp
+Git Branch
+Git Commit
+Docker Image
+Docker Tag
+MLflow Tracking URI
+MLflow Experiment
+MLflow Registered Model
+Serving Stage
+Service URLs
+```
+
+Implementation:
+
+```python
+import argparse
+import json
+from pathlib import Path
+
+
+def load_release_manifest(manifest_path: str) -> dict:
+    return json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+
+
+def build_release_notes(manifest: dict) -> str:
+    project = manifest["project"]
+    generated_at = manifest["generated_at"]
+    git = manifest["git"]
+    docker = manifest["docker"]
+    mlflow = manifest["mlflow"]
+    services = manifest["services"]
+
+    return f"""# Release Notes
+
+## Summary
+
+Project `{project}` production release generated at `{generated_at}`.
+
+## Git
+
+- Branch: `{git["branch"]}`
+- Commit: `{git["commit"]}`
+
+## Docker
+
+- Image: `{docker["image"]}`
+- Tag: `{docker["tag"]}`
+- Full image: `{docker["full_name"]}`
+
+## MLflow
+
+- Tracking URI: `{mlflow["tracking_uri"]}`
+- Experiment: `{mlflow["experiment_name"]}`
+- Registered model: `{mlflow["registered_model_name"]}`
+- Serving stage: `{mlflow["serving_stage"]}`
+
+## Services
+
+- API: `{services["api"]}`
+- MLflow: `{services["mlflow"]}`
+- Prometheus: `{services["prometheus"]}`
+- Grafana: `{services["grafana"]}`
+- Jaeger: `{services["jaeger"]}`
+- Loki: `{services["loki"]}`
+"""
+
+
+def save_release_notes(
+    manifest_path: str = "reports/release_manifest.json",
+    output_path: str = "reports/release_notes.md",
+) -> str:
+    manifest = load_release_manifest(manifest_path)
+    notes = build_release_notes(manifest)
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(notes, encoding="utf-8")
+
+    return notes
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--manifest-path",
+        default="reports/release_manifest.json",
+    )
+    parser.add_argument(
+        "--output-path",
+        default="reports/release_notes.md",
+    )
+    args = parser.parse_args()
+
+    save_release_notes(
+        manifest_path=args.manifest_path,
+        output_path=args.output_path,
+    )
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Tests:
+
+```python
+import json
+
+from scripts.generate_release_notes import build_release_notes, save_release_notes
+
+
+def _sample_manifest() -> dict:
+    return {
+        "generated_at": "2026-06-05T00:00:00+00:00",
+        "project": "mlops-logistic-regression",
+        "git": {
+            "branch": "develop",
+            "commit": "abc123",
+        },
+        "docker": {
+            "image": "mlops-logistic-regression-api",
+            "tag": "abc123",
+            "full_name": "mlops-logistic-regression-api:abc123",
+        },
+        "mlflow": {
+            "tracking_uri": "file:./mlruns",
+            "experiment_name": "loan-approval-logistic-regression",
+            "registered_model_name": "LoanApprovalModel",
+            "serving_stage": "Production",
+        },
+        "services": {
+            "api": "http://127.0.0.1:8000",
+            "mlflow": "http://127.0.0.1:5000",
+            "prometheus": "http://127.0.0.1:9090",
+            "grafana": "http://127.0.0.1:3000",
+            "jaeger": "http://127.0.0.1:16686",
+            "loki": "http://127.0.0.1:3100",
+        },
+    }
+
+
+def test_build_release_notes_contains_release_metadata():
+    notes = build_release_notes(_sample_manifest())
+
+    assert "# Release Notes" in notes
+    assert "mlops-logistic-regression" in notes
+    assert "abc123" in notes
+    assert "LoanApprovalModel" in notes
+    assert "http://127.0.0.1:3000" in notes
+
+
+def test_save_release_notes(tmp_path):
+    manifest_path = tmp_path / "release_manifest.json"
+    output_path = tmp_path / "release_notes.md"
+
+    manifest_path.write_text(json.dumps(_sample_manifest()), encoding="utf-8")
+
+    notes = save_release_notes(
+        manifest_path=str(manifest_path),
+        output_path=str(output_path),
+    )
+
+    assert output_path.exists()
+    assert "Release Notes" in notes
+    assert "mlops-logistic-regression-api:abc123" in output_path.read_text(
+        encoding="utf-8"
+    )
+```
+
+Updated production flow script:
+
+```bash
+echo "Generating release manifest"
+PYTHONPATH=src python src/mlops_lr/release_manifest.py
+
+echo "Generating release notes"
+python scripts/generate_release_notes.py
+
+echo "Building Docker image"
+docker build -t mlops-logistic-regression-api:local .
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/release_manifest.py
+python scripts/generate_release_notes.py
+cat reports/release_notes.md
+```
+
+### Step 133: Production Orchestrator
+
+Created a reusable Python production orchestrator.
+
+Created:
+
+```text
+src/mlops_lr/production_flow.py
+```
+
+This replaces a long shell-only production flow with a testable Python orchestration layer.
+
+The orchestrator runs:
+
+```text
+Quality Checks
+ML Pipeline
+Hyperparameter Tuning Pipeline
+Drift Monitoring Pipeline
+Retraining Pipeline
+Release Manifest Generation
+Docker Image Build
+```
+
+Implementation:
+
+```python
+import argparse
+import subprocess
+from typing import Sequence
+
+
+def run_command(command: Sequence[str]) -> None:
+    subprocess.run(command, check=True)
+
+
+def run_quality_checks() -> None:
+    run_command(["black", "src", "tests"])
+    run_command(["flake8", "src", "tests"])
+    run_command(["pytest"])
+
+
+def run_ml_pipeline() -> None:
+    run_command(["python", "src/mlops_lr/pipeline.py"])
+
+
+def run_tuning_pipeline() -> None:
+    run_command(["python", "src/mlops_lr/tuning_pipeline.py"])
+
+
+def run_drift_pipeline() -> None:
+    run_command(["python", "src/mlops_lr/drift_pipeline.py"])
+
+
+def run_retraining_pipeline() -> None:
+    run_command(["python", "src/mlops_lr/retraining_pipeline.py"])
+
+
+def run_release_manifest() -> None:
+    run_command(["python", "src/mlops_lr/release_manifest.py"])
+
+
+def build_docker_image(image_tag: str) -> None:
+    run_command(
+        [
+            "docker",
+            "build",
+            "-t",
+            f"mlops-logistic-regression-api:{image_tag}",
+            ".",
+        ]
+    )
+
+
+def run_production_flow(image_tag: str = "local", skip_docker: bool = False) -> None:
+    run_quality_checks()
+    run_ml_pipeline()
+    run_tuning_pipeline()
+    run_drift_pipeline()
+    run_retraining_pipeline()
+    run_release_manifest()
+
+    if not skip_docker:
+        build_docker_image(image_tag=image_tag)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--image-tag", default="local")
+    parser.add_argument("--skip-docker", action="store_true")
+    args = parser.parse_args()
+
+    run_production_flow(
+        image_tag=args.image_tag,
+        skip_docker=args.skip_docker,
+    )
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Tests:
+
+```python
+from mlops_lr.production_flow import run_production_flow
+
+
+def test_run_production_flow_runs_all_stages(monkeypatch):
+    commands = []
+
+    def fake_run_command(command):
+        commands.append(command)
+
+    monkeypatch.setattr("mlops_lr.production_flow.run_command", fake_run_command)
+
+    run_production_flow(image_tag="test-tag")
+
+    assert ["black", "src", "tests"] in commands
+    assert ["flake8", "src", "tests"] in commands
+    assert ["pytest"] in commands
+    assert ["python", "src/mlops_lr/pipeline.py"] in commands
+    assert ["python", "src/mlops_lr/tuning_pipeline.py"] in commands
+    assert ["python", "src/mlops_lr/drift_pipeline.py"] in commands
+    assert ["python", "src/mlops_lr/retraining_pipeline.py"] in commands
+    assert ["python", "src/mlops_lr/release_manifest.py"] in commands
+    assert [
+        "docker",
+        "build",
+        "-t",
+        "mlops-logistic-regression-api:test-tag",
+        ".",
+    ] in commands
+
+
+def test_run_production_flow_can_skip_docker(monkeypatch):
+    commands = []
+
+    def fake_run_command(command):
+        commands.append(command)
+
+    monkeypatch.setattr("mlops_lr.production_flow.run_command", fake_run_command)
+
+    run_production_flow(skip_docker=True)
+
+    assert not any(command[0] == "docker" for command in commands)
+```
+
+Updated shell wrapper:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE_TAG="${IMAGE_TAG:-local}"
+
+PYTHONPATH=src python src/mlops_lr/production_flow.py --image-tag "$IMAGE_TAG"
+```
+
+Updated GitHub Actions workflow to call the orchestrator:
+
+```yaml
+- name: Run production flow
+  run: PYTHONPATH=src python src/mlops_lr/production_flow.py --image-tag ${{ github.sha }}
+```
+
+Run:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/production_flow.py --skip-docker
+IMAGE_TAG=local ./scripts/run_production_flow.sh
+```
+
+### Step 134: Production Deployment Runbook
+
+Created a production deployment runbook.
+
+Created:
+
+```text
+docs/production-deployment-runbook
+```
+### Step 136: Phase 17 Production MLOps Checkpoint
+
+Completed Phase 17: Production-Level MLOps.
+
+This phase connected the full platform into a production-style operating workflow.
+
+Implemented:
+
+```text
+Production Release Manifest
+End-to-End Production Flow Script
+Production Flow GitHub Actions Workflow
+Production Readiness Checklist
+Production Flow Orchestrator
+Production Deployment Runbook
+Production Architecture Document
+```
+
+Created:
+
+```text
+src/mlops_lr/release_manifest.py
+src/mlops_lr/production_flow.py
+scripts/run_production_flow.sh
+.github/workflows/production-flow.yml
+docs/production-readiness-checklist.md
+docs/production-deployment-runbook.md
+docs/production-architecture.md
+```
+
+The final production flow now supports:
+
+```text
+Developer
+  ↓
+Git Feature Branch
+  ↓
+Pull Request
+  ↓
+CI Pipeline
+  ↓
+ML Pipeline
+  ↓
+MLflow Experiment
+  ↓
+Hyperparameter Tuning
+  ↓
+MLflow Registry
+  ↓
+Model Promotion
+  ↓
+Docker Build
+  ↓
+FastAPI Deployment
+  ↓
+Prometheus Metrics
+  ↓
+Grafana Dashboard
+  ↓
+OpenTelemetry Traces
+  ↓
+Loki Logs
+  ↓
+Evidently Drift Detection
+  ↓
+Retraining Trigger
+```
+
+Final validation:
+
+```bash
+black src tests
+flake8 src tests
+PYTHONPATH=src pytest
+PYTHONPATH=src python src/mlops_lr/production_flow.py --skip-docker
+```
+
+Optional Docker validation:
+
+```bash
+IMAGE_TAG=local ./scripts/run_production_flow.sh
+docker compose up --build
+./scripts/smoke_test_api.sh
+```
+
+Optional Kubernetes validation:
+
+```bash
+./scripts/deploy_k8s.sh
+kubectl get all -n mlops-local
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+./scripts/smoke_test_k8s_api.sh
+```
+
+Phase 17 milestone tag:
+
+```text
+v1.5-production-mlops
+```
