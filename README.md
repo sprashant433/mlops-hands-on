@@ -8657,3 +8657,100 @@ Redeploy stack:
 ```bash
 ./scripts/deploy_k8s.sh
 ```
+
+### Step 125: Add Kubernetes Runbook
+
+Added a Kubernetes runbook for operating the local MLOps stack.
+
+Runbook file:
+
+```text
+docs/kubernetes-runbook.md
+```
+
+The runbook covers:
+
+```text
+cluster prerequisites
+full stack deployment
+API access
+Prometheus access
+Grafana access
+Jaeger access
+Loki access
+debugging commands
+component restarts
+stack teardown
+stack redeploy
+```
+
+Implementation:
+
+```markdown
+# Kubernetes Runbook
+
+## Purpose
+
+This runbook explains how to deploy, verify, debug, and delete the local Kubernetes MLOps stack.
+
+## Deploy Stack
+
+```bash
+./scripts/deploy_k8s.sh
+```
+
+## Check Resources
+
+```bash
+kubectl get all -n mlops-local
+kubectl get pvc -n mlops-local
+kubectl get ingress -n mlops-local
+```
+
+## API Access
+
+```bash
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+curl http://127.0.0.1:8000/health
+./scripts/smoke_test_k8s_api.sh
+```
+
+## Prometheus Access
+
+```bash
+kubectl port-forward -n mlops-local service/prometheus-service 9090:9090
+```
+
+## Grafana Access
+
+```bash
+kubectl port-forward -n mlops-local service/grafana-service 3000:3000
+```
+
+## Jaeger Access
+
+```bash
+kubectl port-forward -n mlops-local service/jaeger-service 16686:16686
+```
+
+## Loki Access
+
+```bash
+kubectl port-forward -n mlops-local service/loki-service 3100:3100
+curl http://127.0.0.1:3100/loki/api/v1/labels
+```
+
+## Delete Stack
+
+```bash
+./scripts/delete_k8s.sh
+```
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+```

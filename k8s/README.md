@@ -531,3 +531,11 @@ Redeploy full stack:
 ```bash
 ./scripts/deploy_k8s.sh
 ```
+
+## Kubernetes Runbook
+
+Full Kubernetes runbook:
+
+```text
+docs/kubernetes-runbook.md
+```
