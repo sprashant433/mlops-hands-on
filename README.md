@@ -8754,3 +8754,165 @@ black src tests scripts locustfile.py
 flake8 src tests scripts locustfile.py
 PYTHONPATH=src pytest
 ```
+
+### Step 126: Phase 16 Kubernetes Checkpoint
+
+Completed Phase 16: Kubernetes.
+
+This phase moved the local Docker Compose MLOps platform into Kubernetes using Docker Desktop Kubernetes or Minikube.
+
+Implemented:
+
+```text
+Kubernetes Namespace
+FastAPI Deployment
+FastAPI Service
+FastAPI ConfigMap
+Persistent Volumes
+Readiness Probe
+Liveness Probe
+Resource Requests and Limits
+Ingress
+Prometheus Deployment
+Grafana Deployment
+Grafana Datasource
+Grafana Dashboard Provisioning
+Jaeger Deployment
+OpenTelemetry Collector
+Loki Deployment
+Promtail DaemonSet
+Kubernetes Smoke Test Script
+Kubernetes Deploy Script
+Kubernetes Delete Script
+Kubernetes Runbook
+```
+
+Key Kubernetes files:
+
+```text
+k8s/namespace.yaml
+k8s/api-configmap.yaml
+k8s/api-pvc.yaml
+k8s/api-deployment.yaml
+k8s/api-service.yaml
+k8s/api-ingress.yaml
+k8s/prometheus-configmap.yaml
+k8s/prometheus-deployment.yaml
+k8s/prometheus-service.yaml
+k8s/grafana-datasource-configmap.yaml
+k8s/grafana-dashboard-configmap.yaml
+k8s/grafana-deployment.yaml
+k8s/grafana-service.yaml
+k8s/jaeger-deployment.yaml
+k8s/jaeger-service.yaml
+k8s/otel-collector-configmap.yaml
+k8s/otel-collector-deployment.yaml
+k8s/otel-collector-service.yaml
+k8s/loki-deployment.yaml
+k8s/loki-service.yaml
+k8s/promtail-rbac.yaml
+k8s/promtail-configmap.yaml
+k8s/promtail-daemonset.yaml
+```
+
+Automation scripts:
+
+```text
+scripts/deploy_k8s.sh
+scripts/smoke_test_k8s_api.sh
+scripts/delete_k8s.sh
+```
+
+Run quality checks:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+```
+
+Deploy Kubernetes stack:
+
+```bash
+./scripts/deploy_k8s.sh
+```
+
+Check Kubernetes resources:
+
+```bash
+kubectl get all -n mlops-local
+kubectl get pvc -n mlops-local
+kubectl get ingress -n mlops-local
+```
+
+Port-forward API:
+
+```bash
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+```
+
+Run smoke test:
+
+```bash
+./scripts/smoke_test_k8s_api.sh
+```
+
+Port-forward Grafana:
+
+```bash
+kubectl port-forward -n mlops-local service/grafana-service 3000:3000
+```
+
+Open:
+
+```text
+http://127.0.0.1:3000
+```
+
+Port-forward Prometheus:
+
+```bash
+kubectl port-forward -n mlops-local service/prometheus-service 9090:9090
+```
+
+Open:
+
+```text
+http://127.0.0.1:9090
+```
+
+Port-forward Jaeger:
+
+```bash
+kubectl port-forward -n mlops-local service/jaeger-service 16686:16686
+```
+
+Open:
+
+```text
+http://127.0.0.1:16686
+```
+
+Port-forward Loki:
+
+```bash
+kubectl port-forward -n mlops-local service/loki-service 3100:3100
+```
+
+Check Loki labels:
+
+```bash
+curl http://127.0.0.1:3100/loki/api/v1/labels
+```
+
+Kubernetes cleanup:
+
+```bash
+./scripts/delete_k8s.sh
+```
+
+Phase 16 milestone tag:
+
+```text
+v1.4-kubernetes
+```
