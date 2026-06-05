@@ -19,3 +19,23 @@ Check namespace:
 ```bash
 kubectl get namespace mlops-local
 ```
+
+## API Deployment
+
+Apply API deployment:
+
+```bash
+kubectl apply -f k8s/api-deployment.yaml
+```
+
+Check pods:
+
+```bash
+kubectl get pods -n mlops-local
+```
+
+Check logs:
+
+```bash
+kubectl logs -n mlops-local deployment/mlops-api
+```

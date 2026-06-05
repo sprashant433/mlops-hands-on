@@ -6949,3 +6949,59 @@ Expected result:
 ```text
 mlops-local namespace exists
 ```
+
+### Step 105: Add Kubernetes API Deployment
+
+Added a Kubernetes Deployment for the FastAPI inference service.
+
+The deployment runs:
+
+```text
+mlops-logistic-regression-api:latest
+```
+
+Kubernetes manifest:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlops-api
+  namespace: mlops-local
+  labels:
+    app: mlops-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlops-api
+  template:
+    metadata:
+      labels:
+        app: mlops-api
+    spec:
+      containers:
+        - name: mlops-api
+          image: mlops-logistic-regression-api:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: PYTHONPATH
+              value: /app/src
+```
+
+Run:
+
+```bash
+docker build -t mlops-logistic-regression-api:latest .
+kubectl apply -f k8s/api-deployment.yaml
+kubectl get pods -n mlops-local
+kubectl logs -n mlops-local deployment/mlops-api
+```
+
+Expected result:
+
+```text
+mlops-api pod is Running
+```
