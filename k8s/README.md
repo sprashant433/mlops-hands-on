@@ -181,3 +181,39 @@ If no ingress controller is installed, use port-forward:
 kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
 curl http://127.0.0.1:8000/health
 ```
+
+## Prometheus
+
+Apply Prometheus manifests:
+
+```bash
+kubectl apply -f k8s/prometheus-configmap.yaml
+kubectl apply -f k8s/prometheus-deployment.yaml
+kubectl apply -f k8s/prometheus-service.yaml
+```
+
+Check rollout:
+
+```bash
+kubectl rollout status deployment/prometheus -n mlops-local
+kubectl get pods -n mlops-local
+```
+
+Port forward:
+
+```bash
+kubectl port-forward -n mlops-local service/prometheus-service 9090:9090
+```
+
+Open:
+
+```text
+http://127.0.0.1:9090
+```
+
+Query:
+
+```promql
+up
+```
+

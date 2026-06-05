@@ -7400,3 +7400,127 @@ If Ingress controller is not installed, use port-forward:
 kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
 curl http://127.0.0.1:8000/health
 ```
+
+### Step 112: Add Kubernetes Prometheus Deployment
+
+Added Prometheus to Kubernetes for scraping FastAPI metrics.
+
+Prometheus scrape flow:
+
+```text
+Prometheus pod
+→ mlops-api-service:8000/metrics
+→ model and API metrics
+```
+
+Prometheus config:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: mlops-local
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+
+    scrape_configs:
+      - job_name: mlops-api
+        metrics_path: /metrics
+        static_configs:
+          - targets:
+              - mlops-api-service:8000
+```
+
+Prometheus deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: mlops-local
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:latest
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+```
+
+Prometheus service:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-service
+  namespace: mlops-local
+  labels:
+    app: prometheus
+spec:
+  type: ClusterIP
+  selector:
+    app: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/prometheus-configmap.yaml
+kubectl apply -f k8s/prometheus-deployment.yaml
+kubectl apply -f k8s/prometheus-service.yaml
+kubectl rollout status deployment/prometheus -n mlops-local
+kubectl get pods -n mlops-local
+kubectl port-forward -n mlops-local service/prometheus-service 9090:9090
+```
+
+Open Prometheus:
+
+```text
+http://127.0.0.1:9090
+```
+
+Query:
+
+```promql
+up
+```
+
+Expected target:
+
+```text
+job="mlops-api"
+```
