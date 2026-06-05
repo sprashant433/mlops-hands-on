@@ -8105,3 +8105,118 @@ Check Loki:
 ```bash
 curl http://127.0.0.1:3100/ready
 ```
+
+### Step 119: Add Kubernetes Promtail DaemonSet
+
+Added Promtail to Kubernetes as a DaemonSet.
+
+Promtail collects pod logs and sends them to Loki.
+
+Log flow:
+
+```text
+Kubernetes pod logs
+→ Promtail DaemonSet
+→ loki-service:3100
+→ Grafana Loki datasource later
+```
+
+Promtail config:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: mlops-local
+data:
+  promtail-config.yml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+
+    positions:
+      filename: /tmp/positions.yml
+
+    clients:
+      - url: http://loki-service:3100/loki/api/v1/push
+
+    scrape_configs:
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+
+        relabel_configs:
+          - source_labels:
+              - __meta_kubernetes_namespace
+            target_label: namespace
+          - source_labels:
+              - __meta_kubernetes_pod_name
+            target_label: pod
+          - source_labels:
+              - __meta_kubernetes_pod_container_name
+            target_label: container
+          - source_labels:
+              - __meta_kubernetes_pod_label_app
+            target_label: app
+          - action: replace
+            replacement: /var/log/pods/*$1/*.log
+            separator: /
+            source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+```
+
+Promtail DaemonSet:
+
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: mlops-local
+  labels:
+    app: promtail
+spec:
+  selector:
+    matchLabels:
+      app: promtail
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      serviceAccountName: default
+      containers:
+        - name: promtail
+          image: grafana/promtail:latest
+          args:
+            - -config.file=/etc/promtail/promtail-config.yml
+          ports:
+            - containerPort: 9080
+          volumeMounts:
+            - name: promtail-config
+              mountPath: /etc/promtail/promtail-config.yml
+              subPath: promtail-config.yml
+            - name: pods
+              mountPath: /var/log/pods
+              readOnly: true
+      volumes:
+        - name: promtail-config
+          configMap:
+            name: promtail-config
+        - name: pods
+          hostPath:
+            path: /var/log/pods
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/promtail-configmap.yaml
+kubectl apply -f k8s/promtail-daemonset.yaml
+kubectl get daemonset -n mlops-local
+kubectl get pods -n mlops-local -l app=promtail
+kubectl logs -n mlops-local -l app=promtail --tail 50
+```

@@ -392,3 +392,25 @@ Check readiness:
 ```bash
 curl http://127.0.0.1:3100/ready
 ```
+
+## Promtail
+
+Apply Promtail manifests:
+
+```bash
+kubectl apply -f k8s/promtail-configmap.yaml
+kubectl apply -f k8s/promtail-daemonset.yaml
+```
+
+Check DaemonSet:
+
+```bash
+kubectl get daemonset -n mlops-local
+kubectl get pods -n mlops-local -l app=promtail
+```
+
+Check logs:
+
+```bash
+kubectl logs -n mlops-local -l app=promtail --tail 50
+```
