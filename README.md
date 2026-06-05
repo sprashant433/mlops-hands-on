@@ -7005,3 +7005,57 @@ Expected result:
 ```text
 mlops-api pod is Running
 ```
+
+### Step 106: Add Kubernetes API Service
+
+Added a Kubernetes Service for the FastAPI inference deployment.
+
+The service routes traffic to pods with:
+
+```text
+app=mlops-api
+```
+
+Service manifest:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlops-api-service
+  namespace: mlops-local
+  labels:
+    app: mlops-api
+spec:
+  type: ClusterIP
+  selector:
+    app: mlops-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/api-service.yaml
+kubectl get service -n mlops-local
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+```
+
+Test API:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Expected result:
+
+```json
+{
+  "status": "ok",
+  "trace_id": "...",
+  "span_id": "..."
+}
+```

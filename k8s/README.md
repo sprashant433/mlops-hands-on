@@ -39,3 +39,29 @@ Check logs:
 ```bash
 kubectl logs -n mlops-local deployment/mlops-api
 ```
+
+## API Service
+
+Apply API service:
+
+```bash
+kubectl apply -f k8s/api-service.yaml
+```
+
+Check services:
+
+```bash
+kubectl get service -n mlops-local
+```
+
+Port forward:
+
+```bash
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+```
+
+Test:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
