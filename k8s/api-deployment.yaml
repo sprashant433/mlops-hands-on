@@ -24,6 +24,13 @@ spec:
           env:
             - name: PYTHONPATH
               value: /app/src
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
           readinessProbe:
             httpGet:
               path: /ready
@@ -38,16 +45,6 @@ spec:
             initialDelaySeconds: 20
             periodSeconds: 20
             failureThreshold: 3
-          volumeMounts:
-            - name: api-config
-              mountPath: /app/configs/config.yaml
-              subPath: config.yaml
-            - name: api-data
-              mountPath: /app/data
-            - name: api-reports
-              mountPath: /app/reports
-            - name: api-mlruns
-              mountPath: /app/mlruns
       volumes:
         - name: api-config
           configMap:

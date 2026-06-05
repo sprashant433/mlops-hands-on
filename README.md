@@ -7305,3 +7305,38 @@ Expected result:
 ```text
 Pod is running and probes are configured.
 ```
+
+### Step 110: Add Kubernetes API Resource Requests and Limits
+
+Added CPU and memory requests/limits for the FastAPI Kubernetes deployment.
+
+Resource requests tell Kubernetes what the pod needs.
+
+Resource limits cap how much the pod can consume.
+
+Resource configuration:
+
+```yaml
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "1000m"
+    memory: "1Gi"
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/api-deployment.yaml
+kubectl rollout restart deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/mlops-api -n mlops-local
+kubectl describe pod -n mlops-local -l app=mlops-api
+```
+
+Expected result:
+
+```text
+Pod shows CPU and memory requests/limits.
+```
