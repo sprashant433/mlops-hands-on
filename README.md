@@ -7150,3 +7150,107 @@ Verify config mounted:
 ```bash
 kubectl exec -n mlops-local deployment/mlops-api -- cat /app/configs/config.yaml
 ```
+
+### Step 108: Add Kubernetes API Persistent Volumes
+
+Added Kubernetes PersistentVolumeClaims for API runtime files.
+
+The API needs storage for:
+
+```text
+data
+reports
+mlruns
+```
+
+PVC manifest:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlops-api-data-pvc
+  namespace: mlops-local
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlops-api-reports-pvc
+  namespace: mlops-local
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlops-api-mlruns-pvc
+  namespace: mlops-local
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+```
+
+Deployment volume mounts:
+
+```yaml
+volumeMounts:
+  - name: api-config
+    mountPath: /app/configs/config.yaml
+    subPath: config.yaml
+  - name: api-data
+    mountPath: /app/data
+  - name: api-reports
+    mountPath: /app/reports
+  - name: api-mlruns
+    mountPath: /app/mlruns
+```
+
+Deployment volumes:
+
+```yaml
+volumes:
+  - name: api-config
+    configMap:
+      name: mlops-api-config
+  - name: api-data
+    persistentVolumeClaim:
+      claimName: mlops-api-data-pvc
+  - name: api-reports
+    persistentVolumeClaim:
+      claimName: mlops-api-reports-pvc
+  - name: api-mlruns
+    persistentVolumeClaim:
+      claimName: mlops-api-mlruns-pvc
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/api-pvc.yaml
+kubectl apply -f k8s/api-deployment.yaml
+kubectl rollout restart deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/mlops-api -n mlops-local
+kubectl get pvc -n mlops-local
+kubectl get pods -n mlops-local
+```
+
+Verify mounts:
+
+```bash
+kubectl exec -n mlops-local deployment/mlops-api -- ls /app/data
+kubectl exec -n mlops-local deployment/mlops-api -- ls /app/reports
+kubectl exec -n mlops-local deployment/mlops-api -- ls /app/mlruns
+```

@@ -92,3 +92,38 @@ Verify mounted config:
 ```bash
 kubectl exec -n mlops-local deployment/mlops-api -- cat /app/configs/config.yaml
 ```
+
+## API Persistent Volumes
+
+Apply API PVCs:
+
+```bash
+kubectl apply -f k8s/api-pvc.yaml
+```
+
+Apply updated deployment:
+
+```bash
+kubectl apply -f k8s/api-deployment.yaml
+```
+
+Restart deployment:
+
+```bash
+kubectl rollout restart deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/mlops-api -n mlops-local
+```
+
+Check PVCs:
+
+```bash
+kubectl get pvc -n mlops-local
+```
+
+Verify mounts:
+
+```bash
+kubectl exec -n mlops-local deployment/mlops-api -- ls /app/data
+kubectl exec -n mlops-local deployment/mlops-api -- ls /app/reports
+kubectl exec -n mlops-local deployment/mlops-api -- ls /app/mlruns
+```
