@@ -8302,3 +8302,127 @@ Query:
 ```logql
 {namespace="mlops-local"}
 ```
+
+### Step 121: Finalize Kubernetes Loki and Promtail Logging
+
+Finalized Kubernetes log collection using Loki and Promtail.
+
+The final Kubernetes logging flow is:
+
+```text
+Kubernetes container logs
+→ /var/log/containers/*.log
+→ Promtail DaemonSet
+→ Loki service
+→ Grafana Loki datasource
+```
+
+Promtail config:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: mlops-local
+data:
+  promtail-config.yml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+
+    positions:
+      filename: /tmp/positions.yml
+
+    clients:
+      - url: http://loki-service:3100/loki/api/v1/push
+
+    scrape_configs:
+      - job_name: kubernetes-containers
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: kubernetes-containers
+              namespace: mlops-local
+              __path__: /var/log/containers/*.log
+```
+
+Promtail mounts:
+
+```yaml
+volumeMounts:
+  - name: promtail-config
+    mountPath: /etc/promtail/promtail-config.yml
+    subPath: promtail-config.yml
+  - name: pods
+    mountPath: /var/log/pods
+    readOnly: true
+  - name: containers
+    mountPath: /var/log/containers
+    readOnly: true
+  - name: docker-containers
+    mountPath: /var/lib/docker/containers
+    readOnly: true
+```
+
+Host volumes:
+
+```yaml
+volumes:
+  - name: promtail-config
+    configMap:
+      name: promtail-config
+  - name: pods
+    hostPath:
+      path: /var/log/pods
+  - name: containers
+    hostPath:
+      path: /var/log/containers
+  - name: docker-containers
+    hostPath:
+      path: /var/lib/docker/containers
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/promtail-configmap.yaml
+kubectl apply -f k8s/promtail-daemonset.yaml
+kubectl rollout restart daemonset/promtail -n mlops-local
+kubectl rollout status daemonset/promtail -n mlops-local
+kubectl logs -n mlops-local -l app=promtail --tail 100
+```
+
+Generate API logs:
+
+```bash
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/model-info
+```
+
+Check Loki labels:
+
+```bash
+kubectl port-forward -n mlops-local service/loki-service 3100:3100
+curl http://127.0.0.1:3100/loki/api/v1/labels
+```
+
+Expected labels:
+
+```text
+filename
+job
+namespace
+```
+
+Grafana Loki queries:
+
+```logql
+{namespace="mlops-local"}
+```
+
+```logql
+{job="kubernetes-containers"}
+```

@@ -447,3 +447,45 @@ Loki query:
 ```logql
 {namespace="mlops-local"}
 ```
+
+## Final Kubernetes Logging Check
+
+Apply Promtail updates:
+
+```bash
+kubectl apply -f k8s/promtail-configmap.yaml
+kubectl apply -f k8s/promtail-daemonset.yaml
+kubectl rollout restart daemonset/promtail -n mlops-local
+kubectl rollout status daemonset/promtail -n mlops-local
+```
+
+Check Promtail logs:
+
+```bash
+kubectl logs -n mlops-local -l app=promtail --tail 100
+```
+
+Generate API logs:
+
+```bash
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/model-info
+```
+
+Check Loki:
+
+```bash
+kubectl port-forward -n mlops-local service/loki-service 3100:3100
+curl http://127.0.0.1:3100/loki/api/v1/labels
+```
+
+Grafana Explore queries:
+
+```logql
+{namespace="mlops-local"}
+```
+
+```logql
+{job="kubernetes-containers"}
+```
