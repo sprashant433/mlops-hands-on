@@ -9865,3 +9865,12 @@ PYTHONPATH=src pytest
 PYTHONPATH=src python src/mlops_lr/production_flow.py --skip-docker
 IMAGE_TAG=local ./scripts/run_production_flow.sh
 ```
+
+### Step 134: Production Deployment Runbook
+
+Created a production deployment runbook.
+
+Created:
+
+```text
+docs/production-deployment-runbook
