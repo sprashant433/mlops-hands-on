@@ -7924,3 +7924,107 @@ kubectl apply -f k8s/otel-collector-service.yaml
 kubectl rollout status deployment/otel-collector -n mlops-local
 kubectl logs -n mlops-local deployment/otel-collector
 ```
+
+### Step 117: Point Kubernetes API Traces to OTel Collector
+
+Updated tracing configuration so the API sends traces to the Kubernetes OpenTelemetry Collector.
+
+Trace flow in Kubernetes:
+
+```text
+mlops-api pod
+→ otel-collector:4317
+→ jaeger-service:4317
+→ Jaeger UI
+```
+
+Config:
+
+```yaml
+tracing:
+  otlp_endpoint: http://otel-collector:4317
+```
+
+Implementation:
+
+```python
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+from mlops_lr.config import load_config
+
+
+def configure_tracing(app) -> None:
+    config = load_config()
+
+    resource = Resource.create(
+        {
+            "service.name": "mlops-logistic-regression-api",
+        }
+    )
+
+    provider = TracerProvider(resource=resource)
+    processor = BatchSpanProcessor(
+        OTLPSpanExporter(
+            endpoint=config.tracing.otlp_endpoint,
+            insecure=True,
+        )
+    )
+
+    provider.add_span_processor(processor)
+    trace.set_tracer_provider(provider)
+
+    FastAPIInstrumentor.instrument_app(app)
+```
+
+Tests:
+
+```python
+from fastapi import FastAPI
+
+from mlops_lr.tracing import configure_tracing
+
+
+def test_configure_tracing():
+    app = FastAPI()
+
+    configure_tracing(app)
+
+    assert app is not None
+```
+
+Run:
+
+```bash
+black src tests scripts locustfile.py
+flake8 src tests scripts locustfile.py
+PYTHONPATH=src pytest
+docker build -t mlops-logistic-regression-api:latest .
+kubectl apply -f k8s/api-configmap.yaml
+kubectl rollout restart deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/mlops-api -n mlops-local
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+```
+
+Generate trace:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Open Jaeger:
+
+```bash
+kubectl port-forward -n mlops-local service/jaeger-service 16686:16686
+```
+
+Check:
+
+```text
+http://127.0.0.1:16686
+service: mlops-logistic-regression-api
+```

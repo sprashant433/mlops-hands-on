@@ -330,3 +330,37 @@ Check rollout:
 kubectl rollout status deployment/otel-collector -n mlops-local
 kubectl logs -n mlops-local deployment/otel-collector
 ```
+
+## API Tracing to OTel Collector
+
+Apply updated API config:
+
+```bash
+kubectl apply -f k8s/api-configmap.yaml
+```
+
+Restart API:
+
+```bash
+kubectl rollout restart deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/mlops-api -n mlops-local
+```
+
+Generate trace:
+
+```bash
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+curl http://127.0.0.1:8000/health
+```
+
+Open Jaeger:
+
+```bash
+kubectl port-forward -n mlops-local service/jaeger-service 16686:16686
+```
+
+Check service:
+
+```text
+mlops-logistic-regression-api
+```

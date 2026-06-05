@@ -39,3 +39,6 @@ data:
     tuning:
       max_evals: 10
 
+    tracing:
+      otlp_endpoint: http://otel-collector:4317
+

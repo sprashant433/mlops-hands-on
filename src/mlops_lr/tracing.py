@@ -4,9 +4,11 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from mlops_lr.config import load_config
 
 
 def configure_tracing(app) -> None:
+    config = load_config()
     resource = Resource.create(
         {
             "service.name": "mlops-logistic-regression-api",
@@ -16,7 +18,7 @@ def configure_tracing(app) -> None:
     provider = TracerProvider(resource=resource)
     processor = BatchSpanProcessor(
         OTLPSpanExporter(
-            endpoint="http://otel-collector:4317",
+            endpoint=config.tracing.otlp_endpoint,
             insecure=True,
         )
     )
