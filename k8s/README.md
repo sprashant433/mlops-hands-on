@@ -148,3 +148,36 @@ Describe deployment:
 ```bash
 kubectl describe deployment mlops-api -n mlops-local
 ```
+
+## API Ingress
+
+Apply API ingress:
+
+```bash
+kubectl apply -f k8s/api-ingress.yaml
+```
+
+Check ingress:
+
+```bash
+kubectl get ingress -n mlops-local
+```
+
+Add local host mapping:
+
+```text
+127.0.0.1 mlops-api.local
+```
+
+Test:
+
+```bash
+curl http://mlops-api.local/health
+```
+
+If no ingress controller is installed, use port-forward:
+
+```bash
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+curl http://127.0.0.1:8000/health
+```

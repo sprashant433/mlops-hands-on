@@ -7340,3 +7340,63 @@ Expected result:
 ```text
 Pod shows CPU and memory requests/limits.
 ```
+
+### Step 111: Add Kubernetes API Ingress
+
+Added a Kubernetes Ingress for the FastAPI service.
+
+Ingress route:
+
+```text
+mlops-api.local
+→ mlops-api-service
+→ mlops-api pod
+```
+
+Ingress manifest:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mlops-api-ingress
+  namespace: mlops-local
+spec:
+  rules:
+    - host: mlops-api.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mlops-api-service
+                port:
+                  number: 8000
+```
+
+Add local host mapping:
+
+```text
+127.0.0.1 mlops-api.local
+```
+
+Apply ingress:
+
+```bash
+kubectl apply -f k8s/api-ingress.yaml
+kubectl get ingress -n mlops-local
+```
+
+Test:
+
+```bash
+curl http://mlops-api.local/health
+```
+
+If Ingress controller is not installed, use port-forward:
+
+```bash
+kubectl port-forward -n mlops-local service/mlops-api-service 8000:8000
+curl http://127.0.0.1:8000/health
+```
