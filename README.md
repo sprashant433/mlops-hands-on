@@ -7254,3 +7254,54 @@ kubectl exec -n mlops-local deployment/mlops-api -- ls /app/data
 kubectl exec -n mlops-local deployment/mlops-api -- ls /app/reports
 kubectl exec -n mlops-local deployment/mlops-api -- ls /app/mlruns
 ```
+
+### Step 109: Add Kubernetes API Readiness and Liveness Probes
+
+Added Kubernetes health probes for the FastAPI service.
+
+The probes use existing API endpoints:
+
+```text
+/ready  → readiness probe
+/health → liveness probe
+```
+
+Readiness probe:
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 8000
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 3
+```
+
+Liveness probe:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 20
+  periodSeconds: 20
+  failureThreshold: 3
+```
+
+Run:
+
+```bash
+kubectl apply -f k8s/api-deployment.yaml
+kubectl rollout restart deployment/mlops-api -n mlops-local
+kubectl rollout status deployment/mlops-api -n mlops-local
+kubectl describe deployment mlops-api -n mlops-local
+kubectl get pods -n mlops-local
+```
+
+Expected result:
+
+```text
+Pod is running and probes are configured.
+```

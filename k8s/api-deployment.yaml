@@ -24,7 +24,20 @@ spec:
           env:
             - name: PYTHONPATH
               value: /app/src
-        
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
           volumeMounts:
             - name: api-config
               mountPath: /app/configs/config.yaml
